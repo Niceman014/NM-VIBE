@@ -130,8 +130,9 @@ lib/
 ├── data/                           where data comes from
 │   ├── models/       song, playlist, library_groups, download_record
 │   ├── scanner/      scanner_service.dart (Android MediaStore + desktop folders)
-│   ├── sources/      music_source (interface), local_files, internet_archive,
-│   │                 jamendo, audius (NEW), radio (NEW)
+│   ├── sources/      music_source.dart, local_files_source.dart,
+│   │                 internet_archive_music_source.dart, jamendo_music_source.dart,
+│   │                 jamendo_service.dart, audius (NEW), radio (NEW)
 │   ├── repositories/ library_repository, in_memory_library_repository,
 │   │                 music_repository, download_repository (NEW)
 │   └── downloads/    download_manager, download_task, download_storage,
@@ -186,7 +187,8 @@ lib/
 | `core/services/artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
 | `core/services/scanner_service.dart` | `data/scanner/scanner_service.dart` |
 | `core/services/lyrics_service.dart` | `features/player/services/` |
-| `core/services/jamendo_service.dart` | `data/sources/` (or delete if the source replaced it) |
+| `core/services/jamendo_service.dart` | `data/sources/jamendo_service.dart` |
+| `data/repositories/music_providers.dart` | `shared/providers/music_providers.dart` (step 5) |
 | `core/utils/platform_info.dart` | `core/platform/` |
 | `features/settings/…/update_controller.dart`, `update_info_model.dart` | **delete**; use `features/updates/` |
 | `features/library/widgets/song_tile`, `empty_state`, `loading_skeleton` | `shared/widgets/` |
