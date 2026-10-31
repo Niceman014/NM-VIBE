@@ -119,7 +119,7 @@ lib/
 ├── core/                           no UI, no feature logic
 │   ├── audio/        audio_handler.dart (NmVibeAudioHandler), audio_session_setup.dart
 │   ├── storage/      db_service, app_storage, settings_service
-│   ├── scanner/      scanner_service, artwork_service, tags/ (id3, flac, mp4, ogg)
+│   ├── scanner/      artwork_service.dart, tags/ (id3, flac, mp4, ogg)
 │   ├── display/      refresh_rate_service.dart, frame_budget.dart            NEW
 │   ├── platform/     platform_info.dart, per-OS media controls
 │   ├── network/      http_client.dart (timeouts, HTTPS only), connectivity
@@ -129,6 +129,7 @@ lib/
 │
 ├── data/                           where data comes from
 │   ├── models/       song, playlist, library_groups, download_record
+│   ├── scanner/      scanner_service.dart (Android MediaStore + desktop folders)
 │   ├── sources/      music_source (interface), local_files, internet_archive,
 │   │                 jamendo, audius (NEW), radio (NEW)
 │   ├── repositories/ library_repository, in_memory_library_repository,
@@ -161,7 +162,8 @@ lib/
 | Logic that picks "saved file vs stream" | `lib/data/repositories/music_repository.dart` |
 | Download queue, progress, retry | `lib/data/downloads/` |
 | File writing, database, settings access | `lib/core/storage/` |
-| Tag reading, folder scanning | `lib/core/scanner/` |
+| Tag reading and artwork caching | `lib/core/scanner/` |
+| Folder and MediaStore scanning | `lib/data/scanner/` |
 | Refresh-rate or frame-budget code | `lib/core/display/` |
 | Anything OS-specific | behind an interface in `lib/core/platform/` |
 | A screen | `lib/features/<feature>/views/` |
@@ -181,7 +183,8 @@ lib/
 | `core/services/audio_handler.dart` | `core/audio/` |
 | `core/services/db_service`, `app_storage`, `settings_service` | `core/storage/` |
 | `core/services/download_storage` | `data/downloads/download_storage.dart` (`DownloadRecord` → `data/models/download_record.dart`) |
-| `core/services/scanner_service`, `artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
+| `core/services/artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
+| `core/services/scanner_service.dart` | `data/scanner/scanner_service.dart` |
 | `core/services/lyrics_service.dart` | `features/player/services/` |
 | `core/services/jamendo_service.dart` | `data/sources/` (or delete if the source replaced it) |
 | `core/utils/platform_info.dart` | `core/platform/` |
