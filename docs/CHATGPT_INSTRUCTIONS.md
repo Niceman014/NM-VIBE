@@ -118,7 +118,7 @@ lib/
 │
 ├── core/                           no UI, no feature logic
 │   ├── audio/        audio_handler.dart (NmVibeAudioHandler), audio_session_setup.dart
-│   ├── storage/      db_service, app_storage, settings_service, download_storage
+│   ├── storage/      db_service, app_storage, settings_service
 │   ├── scanner/      scanner_service, artwork_service, tags/ (id3, flac, mp4, ogg)
 │   ├── display/      refresh_rate_service.dart, frame_budget.dart            NEW
 │   ├── platform/     platform_info.dart, per-OS media controls
@@ -133,7 +133,8 @@ lib/
 │   │                 jamendo, audius (NEW), radio (NEW)
 │   ├── repositories/ library_repository, in_memory_library_repository,
 │   │                 music_repository, download_repository (NEW)
-│   └── downloads/    download_manager, download_task, offline_index          NEW
+│   └── downloads/    download_manager, download_task, download_storage,
+│                     offline_index                                          NEW
 │
 ├── features/                       one folder per feature; never imports another feature
 │   ├── library/      controllers/  views/  widgets/
@@ -178,7 +179,8 @@ lib/
 | `features/library/models/song_model.dart`, `playlist_model.dart` | `data/models/` |
 | `core/providers/app_providers.dart` | `shared/providers/` |
 | `core/services/audio_handler.dart` | `core/audio/` |
-| `core/services/db_service`, `app_storage`, `settings_service`, `download_storage` | `core/storage/` (`DownloadRecord` → `data/models/download_record.dart`) |
+| `core/services/db_service`, `app_storage`, `settings_service` | `core/storage/` |
+| `core/services/download_storage` | `data/downloads/download_storage.dart` (`DownloadRecord` → `data/models/download_record.dart`) |
 | `core/services/scanner_service`, `artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
 | `core/services/lyrics_service.dart` | `features/player/services/` |
 | `core/services/jamendo_service.dart` | `data/sources/` (or delete if the source replaced it) |
