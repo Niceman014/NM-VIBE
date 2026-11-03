@@ -54,3 +54,4 @@ app.*.map.json
 *.jks
 key.properties
 google-services.json
+.gradle/
