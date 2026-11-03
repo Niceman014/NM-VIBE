@@ -5,3 +5,4 @@
 - [ ] **Android validation**: real-device playback, scanning, background audio, and 90/120 Hz behavior are checked.
 - [ ] **Windows validation**: store handoff and installer hash verification are checked.
 - [ ] **Store readiness**: signing, listings, required testing, and account requirements are confirmed.
+- [ ] Replace the GitHub releases link with the store listing or website before release (the repo is private)
