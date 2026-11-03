@@ -181,7 +181,7 @@ lib/
 | `core/models/library_groups.dart` | `data/models/` |
 | `features/library/models/song_model.dart`, `playlist_model.dart` | `data/models/` |
 | `core/providers/app_providers.dart` | `shared/providers/` |
-| `core/services/audio_handler.dart` | `core/audio/` |
+| `core/services/audio_handler.dart` | `core/audio/audio_handler.dart` |
 | `core/services/db_service`, `app_storage`, `settings_service` | `core/storage/` |
 | `core/services/download_storage` | `data/downloads/download_storage.dart` (`DownloadRecord` → `data/models/download_record.dart`) |
 | `core/services/artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
@@ -210,7 +210,7 @@ The project is being renamed. **All new code and text uses `NM VIBE` / `nm_vibe`
 | --- | --- | --- |
 | Display name, UI text, README, docs, `web/manifest.json`, `web/index.html` | NM VYBE | NM VIBE |
 | Dart package (`pubspec.yaml`, every `package:` import) | `nm_vybe` | `nm_vibe` |
-| Classes | `NmVybeApp`, `NmVybeAudioHandler` | `NmVibeApp`, `NmVibeAudioHandler` |
+| App class | `NmVybeApp` | `NmVibeApp` |
 | Android namespace and applicationId (`build.gradle.kts`) | `com.nmnext.nmvybe` | `com.nmnext.nmvibe` |
 | Windows/macOS names, runner, CMake, RunnerTests ids | `nm_vybe.*` | `nm_vibe.*` |
 | Local data | `.nm_vybe_data`, `nm_vybe.db`, `NM_VYBE_DATA_DIR` | `.nm_vibe_data`, `nm_vibe.db`, `NM_VIBE_DATA_DIR` |
