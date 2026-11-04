@@ -273,8 +273,9 @@ abstract final class LegacyDataMigration {
     RandomAccessFile? output;
     var created = false;
     try {
-      output = await target.open(mode: FileMode.writeOnlyExclusive);
+      await target.create(exclusive: true);
       created = true;
+      output = await target.open(mode: FileMode.write);
       await for (final chunk in source.openRead()) {
         await output.writeFrom(chunk);
       }
