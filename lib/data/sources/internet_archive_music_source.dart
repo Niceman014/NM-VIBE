@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import 'package:nm_vibe/data/downloads/download_storage.dart';
+import 'package:nm_vibe/data/models/download_record.dart';
 import 'package:nm_vibe/data/models/song_model.dart';
 import 'music_source.dart';
 
