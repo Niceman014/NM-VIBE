@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:nm_vibe/core/utils/logger.dart';
 import 'package:nm_vibe/shared/providers/music_providers.dart';
 import 'package:nm_vibe/data/repositories/music_repository.dart';
 import 'package:nm_vibe/data/sources/music_source.dart';
@@ -12,6 +13,9 @@ import 'package:nm_vibe/core/constants/theme_constants.dart';
 import 'package:nm_vibe/shared/providers/app_providers.dart';
 import 'package:nm_vibe/shared/widgets/album_art.dart';
 import 'package:nm_vibe/shared/widgets/loading_skeleton.dart';
+import 'discover_error_message.dart';
+
+const _logger = AppLogger('Discover');
 
 class DiscoverPage extends ConsumerStatefulWidget {
   const DiscoverPage({super.key});
@@ -61,11 +65,12 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _tracks = tracks;
         _loading = false;
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      _logger.e('Search failed', error, stackTrace);
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error = discoverErrorMessage(error);
       });
     }
   }
