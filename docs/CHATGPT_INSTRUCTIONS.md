@@ -71,14 +71,15 @@ Repositories (data/repositories)
 Sources + Storage (data/sources, core/storage)
 ```
 
-At play time the repository looks for a `DownloadRecord` whose `localPath` exists on disk. If it exists, the player opens the file. Otherwise it asks the source for a stream URL. **Adding a source = one class implementing `MusicSource` + registering it. No screen changes.**
+At play time the repository looks for a `DownloadRecord` whose `localPath` exists on disk. If the recorded file exists, the player opens it. A missing recorded file does not fall back to streaming. **Adding a source = one class implementing `MusicSource` + registering it. No screen changes.**
 
 **Import rules**
 
 - Direction is **features → data → core**.
 - `core/` never imports `data/` or `features/`.
 - `data/` never imports `features/`.
-- A feature may import `core/`, `data/`, `shared/` — **never another feature**.
+- A feature may import `core/`, `data/`, and `shared/`; it must not import another feature. The existing settings-page imports listed in `docs/DECISIONS.md` are known exceptions to remove during cleanup.
+- `shared/` may import features for app navigation and provider wiring. Use `shared/navigation/open_now_playing.dart` when a feature needs to open Now Playing; library and playlist screens must not import the player feature directly.
 - No screen touches a source, `http` or a file directly.
 - Platform-specific code sits behind an interface in `core/platform/`, one implementation per OS.
 - Source-specific code (URLs, JSON parsing, licence rules) lives only inside that source's file.
@@ -149,9 +150,11 @@ lib/
 │   └── account/      Google sign-in, playlist backup                         PLANNED
 │
 └── shared/
-    ├── providers/    app_providers.dart
+    ├── navigation/   open_now_playing.dart (shared Now Playing entry point)
+    ├── providers/    app_providers.dart, music_providers.dart
     └── widgets/      app_shell, mini_player, album_art, song_tile, empty_state,
-                      loading_skeleton, desktop_now_playing_pane, custom_button
+                      loading_skeleton, desktop_now_playing_pane, custom_button,
+                      playlist_artwork, add_to_playlist_sheet
 ```
 
 ### 4.3 Where does new code go?
@@ -188,7 +191,8 @@ lib/
 | `core/services/scanner_service.dart` | `data/scanner/scanner_service.dart` |
 | `core/services/lyrics_service.dart` | `features/player/services/` |
 | `core/services/jamendo_service.dart` | `data/sources/jamendo_service.dart` |
-| `data/repositories/music_providers.dart` | `shared/providers/music_providers.dart` (step 5) |
+| `data/repositories/music_providers.dart` | `shared/providers/music_providers.dart` (batch 8) |
+| Library and playlist Now Playing calls | `shared/navigation/open_now_playing.dart` |
 | `core/utils/platform_info.dart` | `core/platform/` |
 | `features/settings/…/update_controller.dart`, `update_info_model.dart` | **delete**; use `features/updates/` |
 | `features/library/widgets/song_tile`, `empty_state`, `loading_skeleton` | `shared/widgets/` |
@@ -352,6 +356,8 @@ NEXT STEP    the single next task from Section 11
 ## 11. Current status and task queue
 
 **Built (automated checks passed):** local library scan + tags/artwork (ID3, FLAC, MP4, OGG, WAV), playlists, queue, synced lyrics (.lrc), Android equalizer, sleep timer, background playback; source layer (`MusicSource`, `MusicRepository`; local, Internet Archive, Jamendo); Node backend with rate limits, caching, tests; store hand-off updates with Windows hash check; defensive download storage (`.part`, startup cleanup, `DownloadRecord`); 5,000-song list at 60 fps on Windows (profile mode).
+
+**Migration status:** complete. UI work is next: audit the migrated screens against `docs/UI_SPEC.md` before changing UI code.
 
 **Not done:** real-phone Android test and 90/120 Hz test · backend hosting · Jamendo commercial agreement · stream cache · download manager screen · Audius and radio sources · Google sign-in/backup · store listings, signing, MSIX, privacy policy · CI · structure clean-up.
 

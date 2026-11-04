@@ -46,7 +46,7 @@ Read together with `docs/CHATGPT_INSTRUCTIONS.md` (hard rules, layers, report fo
 | **Update gate** | Banner or dialog when an update exists; hands off to the store or the verified installer | Checking, up to date, error |
 | **First run** | One screen that explains what to do: add a music folder (desktop) or allow media access (Android) | Permission denied |
 
-Sleep timer, Google sign-in / backup, and purchase / unlock screens are **planned and out of scope** for this UI work unless asked.
+Google sign-in / backup, and purchase / unlock screens are **planned and out of scope** for this UI work unless asked.
 
 ---
 
