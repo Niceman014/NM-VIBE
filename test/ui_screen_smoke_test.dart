@@ -70,9 +70,11 @@ void main() {
     WidgetTester tester,
     Widget page, {
     double textScale = 1,
+    double width = 390,
+    double height = 844,
     InMemoryLibraryRepository? library,
   }) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
       tester.view.resetPhysicalSize();
@@ -81,13 +83,36 @@ void main() {
     await tester.pumpWidget(app(page, textScale: textScale, library: library));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(tester.takeException(), isNull);
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'Screen overflow at width $width and text scale $textScale',
+    );
   }
 
   testWidgets('library screen renders its empty state', (tester) async {
     await pumpScreen(tester, const LibraryPage());
     expect(find.text('Your vibe starts here'), findsOneWidget);
     expect(find.text('Scan my music'), findsOneWidget);
+  });
+
+  testWidgets('library header fits narrow widths and large text', (tester) async {
+    for (final width in [254.0, 360.0, 600.0]) {
+      for (final textScale in [1.0, 2.0]) {
+        await pumpScreen(
+          tester,
+          const LibraryPage(),
+          width: width,
+          height: 2000,
+          textScale: textScale,
+        );
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Overflow at width $width and text scale $textScale',
+        );
+      }
+    }
   });
 
   testWidgets('library shows a skeleton while its first snapshot loads', (

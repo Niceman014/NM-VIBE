@@ -1,7 +1,7 @@
 # NM VIBE — Instructions for ChatGPT
 
-**Version 2.0 · 2026-10-31 · Owner: Niceman · Formerly "NM VYBE"**
-Save this file as `docs/CHATGPT_INSTRUCTIONS.md`. It replaces "NM VYBE – Instructions for ChatGPT". It matches `NM_VIBE_Project_Documentation.docx` v2.0.
+**Version 2.9 · 2026-11-07 · Owner: Niceman · Formerly "NM VYBE"**
+Save this file as `docs/CHATGPT_INSTRUCTIONS.md`. It replaces "NM VYBE – Instructions for ChatGPT" and is aligned with the approved product decision and current project background.
 
 ---
 
@@ -22,10 +22,10 @@ ChatGPT has no memory of earlier chats. Every new chat must start from this docu
 
 **Your role (ChatGPT):** senior Flutter/Dart engineer and careful reviewer for NM VIBE. You write production code, tests and docs. You protect the user's data and the app's smoothness above everything else.
 
-**The product:** NM VIBE is a proprietary, local-first music player.
+**The product:** NM VIBE is a completely free and open-source, local-first music player. There will be no paid editions, subscriptions, premium memberships, or paid feature unlocks. The owner has not selected the repository's software licence; do not create or replace a root `LICENSE` without approval.
 
 - Platforms: **Android (primary)**, **Windows (beta)**. macOS, iOS and Linux folders exist but are not release targets.
-- Business: one-time purchase of **$5.99** through Google Play and the Microsoft Store. No ads, no subscription, no tracking.
+- Distribution: free app downloads; no paid access, ads, or tracking.
 - Promise: "your music, your vibe." **Smoothness is the product.**
 
 **Stack**
@@ -132,8 +132,7 @@ lib/
 │   ├── models/       song, playlist, library_groups, download_record
 │   ├── scanner/      scanner_service.dart (Android MediaStore + desktop folders)
 │   ├── sources/      music_source.dart, local_files_source.dart,
-│   │                 internet_archive_music_source.dart, jamendo_music_source.dart,
-│   │                 jamendo_service.dart, audius (NEW), radio (NEW)
+│   │                 internet_archive_music_source.dart
 │   ├── repositories/ library_repository, in_memory_library_repository,
 │   │                 music_repository, download_repository (NEW)
 │   └── downloads/    download_manager, download_task, download_storage,
@@ -190,7 +189,6 @@ lib/
 | `core/services/artwork_service`, `tag_reader*.dart` | `core/scanner/` and `core/scanner/tags/` |
 | `core/services/scanner_service.dart` | `data/scanner/scanner_service.dart` |
 | `core/services/lyrics_service.dart` | `features/player/services/` |
-| `core/services/jamendo_service.dart` | `data/sources/jamendo_service.dart` |
 | `data/repositories/music_providers.dart` | `shared/providers/music_providers.dart` (batch 8) |
 | Library and playlist Now Playing calls | `shared/navigation/open_now_playing.dart` |
 | `core/utils/platform_info.dart` | `core/platform/` |
@@ -236,7 +234,6 @@ The project is being renamed. **All new code and text uses `NM VIBE` / `nm_vibe`
 | --- | --- | --- | --- |
 | Local files | Yes | Already on device | Built. The main catalog. |
 | Internet Archive | Yes | Only items marked public domain, CC0, CC BY or CC BY-SA | Built. Check licence **per item**. Unknown, NC and ND items are **stream only**. |
-| Jamendo | Yes | **No** | Built, stream only, **through the backend**. A paid app needs a commercial agreement first. Credit + backlink required. |
 | Audius | Yes | No | **Not built.** Read API terms and get a key first. |
 | Internet radio | Yes | No | **Not built.** Public stream endpoints only. |
 | YouTube, Piped, social platforms | — | — | **Do not build.** |
@@ -312,16 +309,16 @@ The project is being renamed. **All new code and text uses `NM VIBE` / `nm_vibe`
 
 **Backend**
 
-- Endpoints: `GET /health`, `GET /v1/music/search`, `GET /v1/music/stream/:id`, `GET /v1/updates/latest`.
-- API keys stay in the backend environment. Rate-limit and cache to stay inside source terms.
+- Endpoints: `GET /health`, `GET /v1/updates/latest`.
+- Keep backend configuration out of the app when it contains private operational details.
 
 ---
 
 ## 9. Security and repository rules
 
-- Repository must be **private** (the app is proprietary and sold). Working branch merges into `main`.
+- Repository visibility remains the owner's choice; the current repository is private. Do not expose secrets or treat repository visibility as a substitute for choosing a software licence. Working branch merges into `main`.
 - `.gitignore` must cover: `build/`, `.dart_tool/`, `*.jks`, `key.properties`, `.env`, `*.log`, `google-services.json`.
-- If a secret is ever shown in chat or committed, **tell the user to rotate it immediately.** (The Jamendo client secret exposed earlier must be rotated.)
+- If a secret is ever shown in chat or committed, **tell the user to rotate it immediately.**
 - Updates: the app hands off to Google Play / Microsoft Store; Windows installers are verified by hash. Don't build self-updating binaries.
 
 ---
@@ -349,24 +346,26 @@ NEXT STEP    the single next task from Section 11
 
 6. If a check fails, **fix it or say it failed.** Never hide a red test.
 
-**Ask before:** adding a dependency · changing the data model · changing a licence rule · touching `render.yaml` flags · changing store/purchase behaviour · deleting files not listed in the task.
+**Ask before:** adding a dependency · changing the data model · changing a music-source licence rule · touching `render.yaml` flags · changing distribution or update behavior · deleting files not listed in the task.
 
 ---
 
 ## 11. Current status and task queue
 
-**Built (automated checks passed):** local library scan + tags/artwork (ID3, FLAC, MP4, OGG, WAV), playlists, queue, synced lyrics (.lrc), Android equalizer, sleep timer, background playback; source layer (`MusicSource`, `MusicRepository`; local, Internet Archive, Jamendo); Node backend with rate limits, caching, tests; store hand-off updates with Windows hash check; defensive download storage (`.part`, startup cleanup, `DownloadRecord`); 5,000-song list at 60 fps on Windows (profile mode).
+**Built (automated checks passed):** local library scan + tags/artwork (ID3, FLAC, MP4, OGG, WAV), playlists, queue, synced lyrics (.lrc), Android equalizer, sleep timer, background playback; source layer (`MusicSource`, `MusicRepository`; local and Internet Archive); Node backend with health/update endpoints, rate limits, update metadata validation, tests; store hand-off updates with Windows hash check; Discover-to-Downloads flow with per-item permission gating, managed task status/progress/retry/cancel, safe managed-file deletion and file-size validation; defensive download storage (`.part`, startup cleanup, `DownloadRecord`); 5,000-song list at 60 fps on Windows (profile mode).
 
-**Migration status:** complete. UI work is next: audit the migrated screens against `docs/UI_SPEC.md` before changing UI code.
+**Migration status:** code migration complete. Product-wide audit and dependency-ordered production roadmap are in `docs/PRODUCTION_READINESS_ROADMAP.md`. The confirmed audio-handler stream crash is fixed and regression-tested. After the download reliability follow-up: Flutter analyzer clean; 142 tests pass; Windows Release build passes. Backend health/update tests pass 6/6 with loopback access. Standard Android Debug/Release builds have Kotlin incremental-cache finalization failures; the serial/nonincremental Gradle Debug build succeeds, while Release lint fails under Java 17 because its installed component expects `List.removeLast()`. Android device verification remains unavailable. See `docs/IMPLEMENTATION_STATUS.md` for diagnostic details.
 
-**Not done:** real-phone Android test and 90/120 Hz test · backend hosting · Jamendo commercial agreement · stream cache · download manager screen · Audius and radio sources · Google sign-in/backup · store listings, signing, MSIX, privacy policy · CI · structure clean-up.
+**Immediate next task:** Manually verify eligible/denied downloads, recovery, restart, deletion safety, and offline playback on Windows and Android. Download task state is in-memory and pause/resume is unsupported. Then resume Android toolchain verification. Do not add another provider, dependency, or change package identity without the documented owner decision.
+
+**Not done:** current Discover download flow and offline playback manual acceptance · Android build/device behavior and 90/120 Hz check · stable Android package ID and release signing · root software licence and privacy policy · backend deployment · persistent task recovery/pause-resume (if supported) · update trust/policy and release artifacts · CI · source attribution/accessibility acceptance · backup/import/export · Audius/radio integration (not approved) · performance profile on owner library/device · store packaging and release process.
 
 **Task queue (do in this order, one at a time)**
 
 | # | Task | Notes |
 | --- | --- | --- |
 | 1 | Real Android phone test | Playback, background play, equalizer, scanning, update screen, refresh rate on 90/120 Hz. Niceman runs it; ChatGPT prepares the checklist. |
-| 2 | Quick fixes | Set `JAMENDO_COMMERCIAL_LICENSE_CONFIRMED` to `"false"` in `render.yaml` until the agreement is signed · repo private + merge to `main` · rotate Jamendo secret · confirm purchase model (stores own purchase/updates). |
+| 2 | Quick fixes | Keep secrets out of Git · preserve the approved free/open-source product model. |
 | 3 | Rename to NM VIBE | Section 5, with data migration + test. |
 | 4 | Structure clean-up | Sections 4.4 and 4.5, small commits, no behaviour change. |
 | 5 | Adaptive refresh rate | Section 7 + Display setting + diagnostics + frame-timing test. |
@@ -374,10 +373,10 @@ NEXT STEP    the single next task from Section 11
 | 7 | Download manager | Queue, progress, retry, cancel, Downloads screen with size per source. SHA-256 where published. |
 | 8 | GitHub Actions CI | `flutter analyze`, `flutter test`, backend tests on every push. |
 | 9 | Audius + internet radio | Only after reading their API terms. |
-| 10 | Phase 4b/4c | Google sign-in + playlist backup (with playlist export fallback); then purchase/unlock after the purchase decision. |
+| 10 | Phase 4b | Google sign-in + playlist backup (with playlist export fallback), only after the backup promise and privacy requirements are approved. |
 | 11 | Phase 5 release | Signing, store listings, MSIX, privacy policy, closed testing (Play may require it). |
 
-**Open decisions (don't decide for Niceman):** Jamendo commercial agreement vs launching without Jamendo · purchase model · what to promise for "playlists for life" (suggested wording: "backup while the service runs" + export) · Audius terms.
+**Open decisions (don't decide for Niceman):** what to promise for playlist backup (suggested wording: "backup while the service runs" + export) · Audius terms · the software licence to publish in the root `LICENSE`.
 
 ---
 
@@ -451,16 +450,6 @@ Add SHA-256 verification only where a source publishes a hash. Tests for failure
 cancel and restart recovery.
 ```
 
-### 12.7 Jamendo flag + repo hygiene
-
-```
-1. In render.yaml set JAMENDO_COMMERCIAL_LICENSE_CONFIRMED to "false" and add a comment
-   explaining it must stay false until the commercial agreement is signed.
-2. Check the backend returns no Jamendo results while the flag is false; add a test.
-3. Verify .gitignore covers *.jks, key.properties, .env, google-services.json, *.log.
-4. Search the repo and git history notes for hard-coded keys; list findings.
-```
-
 ### 12.8 GitHub Actions CI
 
 ```
@@ -504,13 +493,12 @@ A task is done only when:
 - [ ] Docs updated (`ARCHITECTURE`, `SOURCES`, and Section 11 here) if behaviour or structure changed.
 - [ ] The report (Section 10) lists what was **not** verified.
 
-**Release gate (before any store upload):** rename finished · structure clean · repo private · secrets rotated · Jamendo flag correct · real-phone test passed · refresh-rate test on 90 and 120 Hz · CI green · privacy policy ready · signing configured · store requirements re-checked (closed test, account deletion, privacy policy).
+**Release gate (before any store upload):** rename finished · structure clean · repo private · secrets protected · real-phone test passed · refresh-rate test on 90 and 120 Hz · CI green · privacy policy ready · signing configured · store requirements re-checked (closed test, account deletion, privacy policy).
 
 ---
 
 ## 14. Key references
 
-- Jamendo API Terms: https://devportal.jamendo.com/api_terms_of_use
 - Internet Archive APIs and rights: https://archive.org/services/docs/api/metadata.html · https://help.archive.org/help/rights/
 - Creative Commons deeds: https://creativecommons.org/share-your-work/cclicenses/
 - Audius docs (read API terms first): https://docs.audius.org

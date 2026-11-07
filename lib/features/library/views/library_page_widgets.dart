@@ -130,15 +130,26 @@ class _Segment extends StatelessWidget {
 }
 
 class _FavouritesPill extends StatelessWidget {
-  const _FavouritesPill({required this.selected, required this.onTap});
+  const _FavouritesPill({
+    required this.selected,
+    required this.onTap,
+    this.compact = false,
+  });
 
   final bool selected;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final icon = Icon(
+      selected ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+      size: 18,
+      color: selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant,
+    );
+
     return Semantics(
       button: true,
       selected: selected,
@@ -146,40 +157,40 @@ class _FavouritesPill extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: ThemeConstants.motionDuration(context, ThemeConstants.fast),
-          height: ThemeConstants.minimumTapTarget,
-          padding: const EdgeInsets.symmetric(
-            horizontal: ThemeConstants.spacing16,
-          ),
-          decoration: BoxDecoration(
-            color: selected
-                ? scheme.primaryContainer
-                : scheme.surfaceContainerHighest.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                selected
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                size: 18,
-                color: selected
-                    ? scheme.onPrimaryContainer
-                    : scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: ThemeConstants.spacing8),
-              Text(
-                'Favourites',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: selected
-                      ? scheme.onPrimaryContainer
-                      : scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+        child: Tooltip(
+          message: compact ? 'Favourites' : '',
+          child: AnimatedContainer(
+            duration: ThemeConstants.motionDuration(context, ThemeConstants.fast),
+            width: compact ? ThemeConstants.minimumTapTarget : null,
+            height: ThemeConstants.minimumTapTarget,
+            padding: compact
+                ? EdgeInsets.zero
+                : const EdgeInsets.symmetric(
+                    horizontal: ThemeConstants.spacing16,
+                  ),
+            decoration: BoxDecoration(
+              color: selected
+                  ? scheme.primaryContainer
+                  : scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: compact
+                ? Center(child: icon)
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      icon,
+                      const SizedBox(width: ThemeConstants.spacing8),
+                      Text(
+                        'Favourites',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: selected
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),

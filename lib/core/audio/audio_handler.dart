@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:just_audio/just_audio.dart';
 
 import 'package:nm_vibe/core/utils/logger.dart';
 import 'package:nm_vibe/core/platform/platform_info.dart';
+
+part 'audio_handler_recovery.dart';
 
 /// One band of the Android equalizer.
 class EqualizerBandInfo {
@@ -32,10 +35,30 @@ class EqualizerBandInfo {
 class NmVibeAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   NmVibeAudioHandler._(this._player, this._equalizer) {
-    _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
-    _player.currentIndexStream.listen(_onCurrentIndexChanged);
-    _player.errorStream.listen(_onPlaybackError);
+    _playerSubscriptions.addAll([
+      _player.playbackEventStream.listen(
+        _onPlaybackEvent,
+        onError: (Object error, StackTrace stackTrace) {
+          _log.e('Playback state stream failed', error, stackTrace);
+        },
+      ),
+      _player.currentIndexStream.listen(
+        _onCurrentIndexChanged,
+        onError: (Object error, StackTrace stackTrace) {
+          _log.e('Current track stream failed', error, stackTrace);
+        },
+      ),
+      _player.errorStream.listen(
+        _onPlaybackError,
+        onError: (Object error, StackTrace stackTrace) {
+          _log.e('Playback error stream failed', error, stackTrace);
+        },
+      ),
+    ]);
   }
+
+  @visibleForTesting
+  NmVibeAudioHandler.forTesting(AudioPlayer player) : this._(player, null);
 
   factory NmVibeAudioHandler() {
     if (PlatformInfo.supportsEqualizer) {
@@ -56,6 +79,7 @@ class NmVibeAudioHandler extends BaseAudioHandler
   final AndroidEqualizer? _equalizer;
   final StreamController<String> _playbackErrorController =
       StreamController<String>.broadcast();
+  final List<StreamSubscription<dynamic>> _playerSubscriptions = [];
 
   List<MediaItem> _queue = const [];
   int _currentIndex = 0;
@@ -64,7 +88,10 @@ class NmVibeAudioHandler extends BaseAudioHandler
   AudioServiceShuffleMode _shuffleMode = AudioServiceShuffleMode.none;
   final Map<int, double> _equalizerGainOverrides = <int, double>{};
   bool _equalizerEnabled = true;
+  bool _settingQueueSources = false;
   bool _recoveringFromPlaybackError = false;
+  bool _disposed = false;
+  Future<void> _modeUpdateTail = Future<void>.value();
 
   AudioPlayer get player => _player;
   int get currentIndex => _currentIndex;
@@ -111,34 +138,34 @@ class NmVibeAudioHandler extends BaseAudioHandler
     _currentIndex = safeIndex;
     mediaItem.add(_queue[safeIndex]);
 
-    final sources = _queue.map(_sourceFor).toList(growable: false);
-    var playableIndex = safeIndex;
-    while (true) {
+    _settingQueueSources = true;
+    try {
       try {
         await _player.setAudioSources(
-          sources,
-          initialIndex: playableIndex,
-          initialPosition: playableIndex == safeIndex ? initialPosition : null,
+          _queue.map(_sourceFor).toList(growable: false),
+          initialIndex: safeIndex,
+          initialPosition: initialPosition,
         );
-        _currentIndex = playableIndex;
-        mediaItem.add(_queue[playableIndex]);
-        break;
       } catch (error, stackTrace) {
+        final fallback = _withStreamFallback(_queue[safeIndex]);
+        if (fallback == null) rethrow;
         _log.w(
-          'Could not load "${_queue[playableIndex].title}"; trying the next track',
+          'Could not open the saved file for "${fallback.title}"; trying its provider stream',
           error,
           stackTrace,
         );
-        playableIndex++;
-        if (playableIndex >= _queue.length) {
-          mediaItem.add(null);
-          await _player.stop();
-          rethrow;
-        }
-        _currentIndex = playableIndex;
-        mediaItem.add(_queue[playableIndex]);
+        _replaceQueueItem(safeIndex, fallback);
+        await _player.setAudioSources(
+          _queue.map(_sourceFor).toList(growable: false),
+          initialIndex: safeIndex,
+          initialPosition: initialPosition,
+        );
       }
+    } finally {
+      _settingQueueSources = false;
     }
+    _currentIndex = safeIndex;
+    mediaItem.add(_queue[safeIndex]);
     if (autoPlay) {
       await _player.play();
     }
@@ -225,65 +252,7 @@ class NmVibeAudioHandler extends BaseAudioHandler
     mediaItem.add(_queue[index]);
   }
 
-  void _onPlaybackError(PlayerException error) {
-    final failedIndex = error.index ?? _player.currentIndex ?? _currentIndex;
-    if (failedIndex < 0 || failedIndex >= _queue.length) {
-      _log.e('Audio playback failed', error);
-      _playbackErrorController.add('Audio playback failed.');
-      return;
-    }
-    unawaited(_skipFailedTrack(failedIndex, error));
-  }
-
-  Future<void> _skipFailedTrack(int failedIndex, Object error) async {
-    if (_recoveringFromPlaybackError) return;
-    _recoveringFromPlaybackError = true;
-    try {
-      _log.w(
-        'Playback failed for "${_queue[failedIndex].title}"; skipping it',
-        error,
-      );
-      final failedTitle = _queue[failedIndex].title;
-      for (
-        var nextIndex = failedIndex + 1;
-        nextIndex < _queue.length;
-        nextIndex++
-      ) {
-        try {
-          await _player.seek(Duration.zero, index: nextIndex);
-          _currentIndex = nextIndex;
-          mediaItem.add(_queue[nextIndex]);
-          if (!_player.playing) {
-            unawaited(
-              _player.play().catchError((Object playError, StackTrace trace) {
-                _log.e(
-                  'Could not resume playback after skipping a track',
-                  playError,
-                  trace,
-                );
-              }),
-            );
-          }
-          _playbackErrorController.add(
-            'Could not play "$failedTitle". Skipped to "${_queue[nextIndex].title}".',
-          );
-          return;
-        } catch (seekError, stackTrace) {
-          _log.w(
-            'Could not start "${_queue[nextIndex].title}"; trying the next track',
-            seekError,
-            stackTrace,
-          );
-        }
-      }
-      await _player.pause();
-      _playbackErrorController.add(
-        'Could not play "$failedTitle". No playable track remains in the queue.',
-      );
-    } finally {
-      _recoveringFromPlaybackError = false;
-    }
-  }
+  void _onPlaybackError(PlayerException error) => _handlePlaybackError(error);
 
   // -------------------------------------------------------------- transport
   @override
@@ -326,26 +295,39 @@ class NmVibeAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
-    _repeatMode = repeatMode;
-    switch (repeatMode) {
-      case AudioServiceRepeatMode.all:
-        await _player.setLoopMode(LoopMode.all);
-      case AudioServiceRepeatMode.one:
-        await _player.setLoopMode(LoopMode.one);
-      case AudioServiceRepeatMode.none:
-      case AudioServiceRepeatMode.group:
-        await _player.setLoopMode(LoopMode.off);
-    }
-    _broadcastState();
+    await _enqueueModeUpdate(() async {
+      switch (repeatMode) {
+        case AudioServiceRepeatMode.all:
+          await _player.setLoopMode(LoopMode.all);
+        case AudioServiceRepeatMode.one:
+          await _player.setLoopMode(LoopMode.one);
+        case AudioServiceRepeatMode.none:
+        case AudioServiceRepeatMode.group:
+          await _player.setLoopMode(LoopMode.off);
+      }
+      _repeatMode = repeatMode;
+      _broadcastState();
+    });
   }
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
-    _shuffleMode = shuffleMode;
-    await _player.setShuffleModeEnabled(
-      shuffleMode != AudioServiceShuffleMode.none,
-    );
-    _broadcastState();
+    await _enqueueModeUpdate(() async {
+      await _player.setShuffleModeEnabled(
+        shuffleMode != AudioServiceShuffleMode.none,
+      );
+      _shuffleMode = shuffleMode;
+      _broadcastState();
+    });
+  }
+
+  Future<void> _enqueueModeUpdate(Future<void> Function() update) {
+    if (_disposed) return Future<void>.value();
+    final result = _modeUpdateTail.then((_) => update());
+    _modeUpdateTail = result.catchError((Object error, StackTrace stackTrace) {
+      _log.e('Could not update playback mode', error, stackTrace);
+    });
+    return result;
   }
 
   // -------------------------------------------------------------- equalizer
@@ -405,6 +387,12 @@ class NmVibeAudioHandler extends BaseAudioHandler
   }
 
   // ---------------------------------------------------------------- internals
+  void _onPlaybackEvent(PlaybackEvent event) {
+    if (_disposed) return;
+    _lastEvent = event;
+    playbackState.add(_transformEvent(event));
+  }
+
   PlaybackState _transformEvent(PlaybackEvent event) {
     _lastEvent = event;
     return PlaybackState(
@@ -438,6 +426,7 @@ class NmVibeAudioHandler extends BaseAudioHandler
   }
 
   void _broadcastState() {
+    if (_disposed) return;
     final event = _lastEvent;
     if (event == null) {
       playbackState.add(
@@ -456,6 +445,29 @@ class NmVibeAudioHandler extends BaseAudioHandler
       return;
     }
     playbackState.add(_transformEvent(event));
+  }
+
+  /// Releases the player, event subscriptions, and inherited audio streams.
+  /// The provider owner calls this when its application scope is disposed.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _modeUpdateTail;
+    await Future.wait(_playerSubscriptions.map((subscription) {
+      return subscription.cancel();
+    }));
+    await _player.dispose();
+    await _playbackErrorController.close();
+    await Future.wait([
+      playbackState.close(),
+      queue.close(),
+      queueTitle.close(),
+      mediaItem.close(),
+      androidPlaybackInfo.close(),
+      ratingStyle.close(),
+      customEvent.close(),
+      customState.close(),
+    ]);
   }
 }
 

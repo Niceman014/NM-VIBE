@@ -10,9 +10,9 @@ repository-relative paths.
 
 | Spec item | Status | Code evidence |
 |---|---|---|
-| Phone, under 600 dp: bottom navigation, mini player above it, tap to Now Playing | **Partial** | `lib/shared/widgets/app_shell.dart:98-100, 121-153` selects bottom navigation below 900 dp and includes `MiniPlayer` until the desktop pane breakpoint. `lib/shared/widgets/mini_player.dart:53-65` opens Now Playing on tap. Phone behavior exists, but the app-shell breakpoint is 900 dp, not 600 dp. |
-| Tablet, 600–839 dp: NavigationRail, content, mini player, no side pane | **Missing** | `app_shell.dart:98-100, 106-153`: widths 600–839 still use bottom navigation; the rail starts at 900 dp. |
-| Desktop, 840 dp and up: rail, content, Now Playing pane | **Partial** | `app_shell.dart:98-100, 106-139`: rail begins at 900 dp and pane at 1180 dp. At 840–899 there is bottom navigation; at 900–1179 there is no side pane. |
+| Phone, under 600 dp: bottom navigation, mini player above it, tap to Now Playing | **Existing** | `lib/shared/widgets/app_shell.dart:98-100, 121-153` selects bottom navigation below 900 dp and includes `MiniPlayer` until the desktop pane breakpoint. `lib/shared/widgets/mini_player.dart:53-65` opens Now Playing on tap. The current threshold also uses the bottom bar at 600–899 dp. |
+| Tablet, 600–1179 dp: NavigationRail, content, mini player, no side pane | **Partial** | `app_shell.dart:98-100, 106-153`: widths 600–899 still use bottom navigation; the rail starts at 900 dp. The requested tablet range is now 600–1179 dp. |
+| Desktop, 1180 dp and up: rail, content, Now Playing pane | **Existing** | `app_shell.dart:98-100, 106-139` starts the side pane at 1180 dp as specified; widths 900–1179 currently show the rail without the side pane. |
 | Layout follows resized window width, not platform | **Partial** | `app_shell.dart:97-100` reads `MediaQuery.sizeOf(context).width`; the behavior is width-based, though it uses `MediaQuery` rather than the spec's `LayoutBuilder`. |
 | Back, Esc, system gesture close player, sheets, and details | **Partial** | Player and detail routes use `Navigator` (`lib/features/player/views/now_playing_page.dart:69-103`, `lib/features/library/views/album_detail_page.dart:99-114`, `lib/features/playlists/views/playlist_detail_page.dart:440-449`); Now Playing also supports a vertical-dismiss gesture (`now_playing_page.dart:117-120`). No explicit Esc/keyboard shortcut handler was found. Required-update screen uses `PopScope(canPop: false)` (`lib/features/updates/views/update_gate.dart:52-54`). |
 
@@ -22,10 +22,10 @@ repository-relative paths.
 
 | Requirement/state | Status | Code evidence |
 |---|---|---|
-| Songs, Albums, Artists, Favorites; search, sort, multi-select | **Partial** | Tabs are Songs/Albums/Artists (`lib/features/library/views/library_page.dart:30, 286-306`); favorites is a toggle/filter in `library_page_header.dart:92-95` and `library_page_widgets.dart:132-185`, rather than a fourth tab. Search and sort are in `library_page_header.dart:92-95, 53-73`; multi-select actions are in `lib/features/library/widgets/selection_bar.dart:5-58`. |
+| Songs, Albums, Artists tabs; Favorites filter toggle; search, sort, multi-select | **Existing** | Tabs are Songs/Albums/Artists (`lib/features/library/views/library_page.dart:30, 286-306`); Favorites is the filter toggle in `library_page_header.dart:92-95` and `library_page_widgets.dart:132-185`, as decided. Search and sort are in `library_page_header.dart:92-95, 53-73`; multi-select actions are in `lib/features/library/widgets/selection_bar.dart:5-58`. |
 | Add folder on desktop / scan device on Android; scan status | **Existing** | Empty state offers scan and desktop folder actions (`lib/features/library/views/library_page_content.dart:108-129`); platform selection and permission request are in `lib/features/library/controllers/scan_controller.dart:168-193`; scan progress/error banner is `lib/features/library/widgets/scan_status_banner.dart:21-120`. |
 | Loading skeleton | **Existing** | `library_page_content.dart:21-35`. |
-| Empty library | **Partial** | `library_page_content.dart:108-129` supplies actions, but the copy is “Your vibe starts here” / “Scan my music,” not the spec's “Your library starts here” / “Add music.” |
+| Empty library | **Existing** | `library_page_content.dart:108-129` uses the accepted copy “Your vibe starts here” / “Scan my music” and provides scan/add-folder actions. |
 | Scan running and scan error with Retry | **Existing** | `scan_status_banner.dart:21-33, 65-117`. |
 | Android permission denied with action opening system settings | **Partial** | `scan_controller.dart:173-182` records a denied-permission message; `scan_status_banner.dart:73-77` can show Retry. No button to open system settings was found. |
 
@@ -54,15 +54,15 @@ repository-relative paths.
 
 | Requirement/state | Status | Code evidence |
 |---|---|---|
-| Internet Archive/Jamendo source chips | **Missing** | The screen builds a heading and search field (`lib/features/discover/views/discover_page.dart:222-265`); no source selector was found. |
-| Source badge and licence badge on each result | **Partial** | The tile displays creator/source attribution text (`discover_page.dart:352-357, 459-466`), but no separate source or licence badge was found. The License link is conditional on `track.licenseUrl` (`discover_page.dart:361-363, 482-489`). |
-| Stream, download, creator credit, item/licence links | **Partial** | Play and download actions are wired at `discover_page.dart:352-368`; credit and links are in `discover_page.dart:459-489`. Licence links appear only when a URL exists, so the “every result” requirement is not guaranteed by the UI. |
+| Active source selection chips | **Missing** | The screen builds a heading and search field (`lib/features/discover/views/discover_page.dart:222-265`); no source selector was found. |
+| Source badge and decision-defined licence badge on each result | **Partial** | The tile displays creator/source attribution text (`discover_page.dart:352-357, 459-466`), but no separate source or licence badge was found. The licence link is conditional on `track.licenseUrl` (`discover_page.dart:361-363, 482-489`). |
+| Stream, download, creator credit, item/licence links and unknown-licence label | **Partial** | Play and download actions are wired at `discover_page.dart:352-368`; credit and links are in `discover_page.dart:459-489`. Unknown items do not yet display the decided “Licence unknown, stream only” badge. |
 | Initial suggestions or hint | **Partial** | Configured sources auto-search an empty query (`discover_page.dart:33-38`); heading/search field at `243-264`, but no curated suggestions. |
 | Loading | **Existing** | Skeleton: `discover_page.dart:316-324`. |
 | No results | **Existing** | “No tracks found” state: `discover_page.dart:325-331`. |
-| Error with Retry | **Existing** | `discover_page.dart:304-314`. |
-| Offline | **Missing** | No connectivity/offline branch; network failures use the generic error state (`discover_page.dart:64-69, 304-314`). |
-| Backend not configured | **Existing** | `_SetupNotice`: `discover_page.dart:572-584`; Jamendo configuration note: `289-303`. |
+| Error with Retry | **Existing** | The error branch keeps Retry (`discover_page.dart:315-318`); categorized messages are produced by `discover_error_message.dart:14-23` and logged with the original exception at `discover_page.dart:68-73`. |
+| Offline connection message | **Existing** | `discover_error_message.dart:18-21` maps socket, timeout and HTTP client failures to the offline message in the shared Discover error branch (`discover_page.dart:315-318`). |
+| Search source availability | **Existing** | The setup notice is shown when no search source is configured (`discover_page.dart`). |
 
 ### Downloads
 
@@ -106,7 +106,7 @@ repository-relative paths.
 | Requirement/state | Status | Code evidence |
 |---|---|---|
 | Version, app name and description/tagline | **Existing** | `lib/features/settings/views/settings_page_sections.dart:449-518`. |
-| Jamendo/Internet Archive source credits and links | **Missing** | About shows app identity/tagline and general licence page (`settings_page_sections.dart:499-518, 628-639`); no source credits or source links were found there. |
+| Online source credits and links | **Missing** | About shows app identity/tagline and general licence page (`settings_page_sections.dart:499-518, 628-639`); no source credits or source links were found there. |
 | Open-source licence page | **Existing** | `settings_page_sections.dart:628-639`. About is a Settings section, not a separate screen. |
 
 ### Update gate
@@ -117,13 +117,13 @@ repository-relative paths.
 | Checking | **Partial** | Required-update view shows a progress indicator at `update_gate.dart:141-143`; otherwise the gate displays its child (`update_gate.dart:31-37`). |
 | Error with Retry | **Existing** | `update_gate.dart:102-139`. |
 | Downloading and verifying | **Existing** | `update_gate.dart:85-101`. |
-| Up to date on the gate | **Missing** | When an update is not required, the gate returns its child (`update_gate.dart:31-37`). Status text is in Settings (`lib/features/settings/views/settings_page_sections.dart:671-685`). |
+| Up-to-date status location | **Existing** | The decision is to show this status in Settings only; text is at `lib/features/settings/views/settings_page_sections.dart:671-685`. The gate returns its child when no update is required (`update_gate.dart:31-37`). |
 
 ### First run
 
 | Requirement/state | Status | Code evidence |
 |---|---|---|
-| Dedicated first-run explanation/action | **Partial** | The empty-library state gives local-library guidance and scan/add-folder actions (`lib/features/library/views/library_page_content.dart:108-129`), but no separate first-run/onboarding screen was found. |
+| First-run guidance via Library empty state; no separate screen | **Existing** | The accepted design uses the Library empty state for first-use guidance and has no separate onboarding page (`lib/features/library/views/library_page_content.dart:108-129`). |
 | Android permission denied guidance | **Partial** | Denial message exists (`lib/features/library/controllers/scan_controller.dart:173-182`); there is no system-settings action. |
 
 ## Gaps by priority
@@ -132,31 +132,28 @@ repository-relative paths.
 
 1. Add the missing Download manager screen and its required queue/progress/recovery states, or revise the UI spec if it is intentionally deferred. Current feature folder has no Dart screen.
 2. Align app-shell breakpoints with the target phone/tablet/desktop ranges. Current thresholds are 900 dp for rail and 1180 dp for the side pane (`lib/shared/widgets/app_shell.dart:98-100`).
-3. Fix the known narrow-window overflow: `RenderFlex overflowed by 4.3 px` at `lib/features/library/views/library_page_header.dart:36` around 254 px width.
 
 ### P1 — states and source clarity
 
 4. Add an explicit Android permission-denied recovery action that opens system settings; current scan error only offers retry (`lib/features/library/controllers/scan_controller.dart:173-182`; `lib/features/library/widgets/scan_status_banner.dart:73-77`).
-5. Add Discover's offline state and clarify whether source chips and source/licence badges are required; none are currently rendered as selectors/badges (`lib/features/discover/views/discover_page.dart:222-265, 459-489`).
-6. Ensure each Discover result exposes a licence link or an explicit unavailable/unknown licence state; the link is omitted when `licenseUrl` is null (`discover_page.dart:361-363`).
+5. Add Discover's decided source chips and visible source/licence badges; none are currently rendered as selectors/badges (`lib/features/discover/views/discover_page.dart:222-265, 459-489`).
+6. Show the decided “Licence unknown, stream only” badge when `licenseUrl` is null; do not add a link for unknown licences (`discover_page.dart:361-363`).
 7. Add Retry/Skip actions to playback errors if the spec remains binding (`lib/features/player/views/now_playing_page.dart:315-363`).
 8. Add the settings Display section and About source credits/links (`settings_page.dart:385-417`; `settings_page_sections.dart:449-518`).
 9. Make empty detail data, stream errors, and update status handling explicit where the spec calls for those states (`album_detail_page.dart:39-42`; `playlist_detail_page.dart:46-67`; `update_gate.dart:31-37`).
 
 ### P2 — spec and polish
 
-10. Decide whether Favorites should be a fourth tab or remain a filter toggle (`library_page.dart:30`; `library_page_header.dart:92-95`). Update the empty-library wording to match the spec if exact copy is intended (`library_page_content.dart:114-128`).
-11. Add explicit first-run UI only if it should be distinct from the empty-library screen.
-12. Verify narrow layouts and text scaling at the spec's full matrix before changing fixed sizing.
+10. Verify narrow layouts and text scaling at the spec's full matrix before changing fixed sizing.
 
 ## States absent or not dedicated
 
 - **No dedicated screen-level loading/empty/error/offline states:** About, Settings, and the mini player; their data subcomponents have some local progress/error handling, but the screens themselves do not implement all four generic states.
 - **No loading/error states:** album and artist details; they render supplied group snapshots and an empty state only (`album_detail_page.dart:22-42, 151-159`; `artist_detail_page.dart:23-43, 166-174`).
-- **No explicit offline state:** Discover; a failed search maps to its generic error branch (`discover_page.dart:64-69, 304-314`).
+- **Discover offline:** Existing as a categorized connection message in the error state, not as a separate screen or live connectivity monitor (`discover_error_message.dart:18-21`; `discover_page.dart:315-318`).
 - **No Downloads screen or any of its required states:** `lib/features/downloads/` has no Dart implementation.
-- **No dedicated First-run screen:** empty-library content is the closest first-use experience (`library_page_content.dart:108-129`).
-- **Update gate has no up-to-date state of its own:** it passes through to the app when updates are not required (`update_gate.dart:31-37`).
+- **No separate First-run screen by decision:** first-use guidance belongs in the Library empty state (`library_page_content.dart:108-129`).
+- **Update gate has no up-to-date state of its own by design:** the status belongs in Settings (`update_gate.dart:31-37`; `settings_page_sections.dart:671-685`).
 - **Playback error has no retry/skip control:** the player error banner only displays text (`now_playing_page.dart:315-363`).
 
 ## Hard-coded colours and sizes
@@ -175,37 +172,35 @@ repository-relative paths.
 
 ## Likely 360 dp / 2.0 text-scale overflow risks
 
-- **Confirmed from the reported run:** library header Row overflows by 4.3 px at about 254 dp (`lib/features/library/views/library_page_header.dart:33-74`, especially line 36); its app label, spacer, add/scan/sort controls share one row.
+- **Fixed in the Library narrow-header task:** below 440 dp the brand label stacks above the actions, and the Favourites filter becomes a labeled compact icon. Widget coverage checks widths 254, 360 and 600 dp at text scales 1.0 and 2.0.
 - **High risk:** settings content at 360 dp / 2.0 scale, particularly segmented theme buttons and dense `ListTile` rows (`lib/features/settings/views/settings_page_sections.dart:98-120, 204-320, 354-445`). Settings screen has a 900 dp wide-layout split (`lib/features/settings/views/settings_page.dart:370-417`).
 - **High risk:** long album/artist names use fixed 44 dp titles and playlist titles use 40 dp (`album_detail_page.dart:310`; `artist_detail_page.dart:278`; `playlist_detail_page.dart:273`); their hero rows and actions should be checked at 360 dp and 2.0 scale.
 - **Medium risk:** Discover result rows have 54 dp art plus multiple metadata/credit/link lines and action buttons (`lib/features/discover/views/discover_page.dart:407-429, 459-539`).
 - **Medium risk:** Now Playing uses a minimum 140 dp artwork clamp and fixed horizontal padding at narrow widths (`lib/features/player/views/now_playing_page.dart:407-425`); this is scrollable, but should be tested with 2.0 text scale.
-- These are source-based risk candidates except the reported library-header overflow. No viewport/text-scale test matrix was run for this audit.
+- Remaining entries are source-based risk candidates; the known library-header case now has a viewport/text-scale widget test.
 
 ## Spec items to reconsider
 
-- UI_SPEC §2 breakpoints say 600/840 dp, while the shell uses 900/1180 dp. Decide one breakpoint set before implementation.
-- UI_SPEC §3 requests Discover source chips, badges, and a dedicated offline state; current search combines configured sources and has no source selector or offline branch. Decide whether the spec or code should define the intended experience.
-- The spec requires a licence link on every online result, while the view hides the License link when a track has no `licenseUrl` (`discover_page.dart:361-363`). Define the intended unknown-licence UI.
+- UI_SPEC §2 now sets breakpoints at 600/1180 dp; the shell still uses 900/1180 dp (`app_shell.dart:98-100`).
+- Discover source chips and licence labels are now decided; the code still lacks selectors and visible badges (`discover_page.dart:222-265, 459-489`).
+- Unknown licence means “Licence unknown, stream only” with no link; the view still omits the licence link without displaying that badge (`discover_page.dart:361-363`).
 - The spec describes Downloads as a screen, but current settings only expose offline-download controls; the dedicated feature is absent.
 - The spec calls for a Display setting, but the settings page currently has no Display section.
-- The generic “four states on every screen” principle is too broad for components such as the mini player and About section; use the per-screen state requirements in §3 instead.
-- The library empty-state copy differs from the spec; decide whether exact copy is a requirement or an example.
+- Each screen implements its listed states; no universal four-state rule applies to components such as the mini player and About section.
 
 ## Proposed work order (one screen per task)
 
 Sizes are rough effort estimates, not file line counts; each item should be a separate reviewable UI task.
 
-1. **Library narrow header** — S (fix the known 254 dp overflow; add narrow-width checks).
-2. **App-shell navigation breakpoints** — M (align phone/tablet/desktop navigation and pane thresholds).
+1. **Library narrow header** — Complete (responsive at narrow widths; tested at 254, 360 and 600 dp with text scales 1.0 and 2.0).
+2. **App-shell navigation breakpoints** — M (bottom bar below 600 dp, rail from 600 dp, pane from 1180 dp).
 3. **Library permission-denied recovery** — S (clear explanation plus system-settings action).
 4. **Album detail** — M (empty/loading/error behavior and 360 dp/2.0 scale checks).
 5. **Artist detail** — M (same responsive/state audit as album detail).
 6. **Playlist list and detail** — M (detail error handling and responsive text/layout checks).
-7. **Discover** — L (source selection/badges, licence fallback, dedicated offline state, responsive results).
+7. **Discover** — L (source selection/badges, unknown-licence label, responsive results).
 8. **Downloads screen** — L (screen and required queue, progress, failure, empty, storage states).
 9. **Now Playing and lyrics** — L (playback recovery actions, scale/responsive checks, verify control consistency).
 10. **Settings** — M (Display section decision, narrow rows and 2.0 text scale).
 11. **About section** — S (source credits and links).
-12. **First-run experience** — M (decide whether a distinct screen is needed; otherwise refine the library empty state).
-13. **Update gate** — S (define whether up-to-date feedback belongs in the gate or Settings only).
+12. **Update gate** — S (keep the up-to-date status in Settings only; verify the existing status).

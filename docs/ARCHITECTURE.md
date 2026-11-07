@@ -1,13 +1,20 @@
 # NM VIBE Architecture
 
+**Product policy:** NM VIBE is a completely free and open-source music player with no paid editions, subscriptions, premium memberships, or paid feature unlocks. Its software licence is a separate owner decision; no root `LICENSE` is created until it is approved.
+
 - **Layer direction**: features depend on data, and data depends on core.
 - **Screen flow**: views call feature controllers, which call repositories.
-- **Source boundary**: repositories coordinate music sources and storage in `lib/data/sources/`; Jamendo’s backend adapter also lives there. `music_providers.dart` is shared wiring in `lib/shared/providers/`.
+- **Source boundary**: repositories coordinate active music sources and storage in `lib/data/sources/`. `music_providers.dart` is shared wiring in `lib/shared/providers/`.
 - **Storage boundary**: app storage, database, and settings services belong in `lib/core/storage/`; download file storage belongs in `lib/data/downloads/download_storage.dart`, and its `DownloadRecord` model belongs in `lib/data/models/download_record.dart`.
 - **Scanner boundary**: tag parsing and artwork caching belong in `lib/core/scanner/`; the folder and MediaStore scanner belongs in `lib/data/scanner/scanner_service.dart` because it depends on data models and repositories.
 - **Platform boundary**: operating-system-specific behavior belongs behind `lib/core/platform/` interfaces.
 - **Shared UI**: widgets used by multiple features belong in `lib/shared/widgets/`.
 - **Shared navigation and providers**: `lib/shared/navigation/open_now_playing.dart` is the entry point for library and playlist screens to open the player. `lib/shared/providers/` wires repositories and feature controllers. Shared code may import features; features should not import one another.
 - **Known feature-import exceptions**: `settings_page.dart` currently imports update, library-scan, and player controllers/services. These four imports are recorded in `docs/DECISIONS.md` for cleanup.
-- **Offline playback**: a missing file referenced by a `DownloadRecord` does not fall back to streaming.
-- **Migration status**: complete; UI audit and work are next.
+- **Offline playback**: successful Internet Archive downloads are stored as downloaded library songs (`isDownloaded` with a local `filePath`) and a `DownloadRecord`. Before playback, the player checks that the local file exists and is non-empty. If it is missing or empty, it may fall back only to an HTTPS URL belonging to the recognized Internet Archive source. If the audio engine rejects a non-empty local file, it attempts that fallback once. The library song is persisted with `isDownloaded: false` when fallback is selected; a network/provider failure remains a playback error. Generic source IDs in saved records are retained for data integrity.
+- **Discover-to-Downloads**: Discover checks source and item download eligibility and reports the reason when saving is unavailable. `DownloadManager` serializes transfers and exposes in-memory per-track progress/state, retry, and cancel. Completed files/records persist, but active task state does not restore after restart; pause/resume is unsupported. `DownloadStorage.deleteRecord` deletes the file only when its resolved path is within the managed download root.
+- **Playback errors**: the handler pauses on the failed item and exposes a recoverable error. Now Playing offers Retry; Skip is shown only if the queue has a next item. There is no automatic retry loop.
+- **Download-index replacement**: writes use a validated `.tmp`, a validated `.bak`, and restoration after failed replacement. Startup restores a backup when the target is absent/invalid. This improves recoverability but does not promise crash-safe atomic writes across all supported filesystems.
+- **Audio state publishing**: the handler owns the player event/index/error subscriptions and publishes playback state through one `BehaviorSubject.add()` path. Repeat/Shuffle engine updates are serialized. The root provider disposes the handler and its streams when the application scope is disposed.
+- **Backend boundary**: the Node service provides health and update metadata endpoints. Discover queries its active sources directly.
+- **Migration status**: code migration complete. The confirmed Phase 1 audio-handler stream crash is fixed and regression-tested; remaining product, platform-build, and release gates are tracked in `docs/IMPLEMENTATION_STATUS.md` and `docs/PRODUCTION_READINESS_ROADMAP.md`.

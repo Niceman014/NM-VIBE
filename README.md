@@ -1,6 +1,8 @@
 # NM VIBE
 
-NM VIBE is a local-first music player project. Android is the primary platform; Windows is in beta.
+NM VIBE is a completely free and open-source local-first music player. There will be no paid editions, subscriptions, premium memberships, or paid feature unlocks. Android is the primary platform; Windows is in beta.
+
+The software licence for the repository has not yet been selected. No root `LICENSE` file is published; choosing the licence is an owner decision.
 
 ## Repository layout
 
@@ -16,7 +18,7 @@ NM VIBE is a local-first music player project. Android is the primary platform; 
 - `third_party/` — maintained patches to external packages
 - `tool/` — project maintenance and profiling scripts
 
-The folders are a scaffold for the planned architecture. Existing app code remains in place until each structure cleanup step is ready to be moved without behavior changes.
+The repository contains the migrated Flutter app, a Node.js backend, tests, and project documentation.
 
 ## Getting started
 

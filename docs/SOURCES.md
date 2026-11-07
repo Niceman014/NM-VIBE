@@ -3,13 +3,12 @@
 | Source | Stream | Offline copy | Status / conditions |
 | --- | --- | --- | --- |
 | Local files | Yes | Already on device | Built. The main catalog. |
-| Internet Archive | Yes | Only items marked public domain, CC0, CC BY or CC BY-SA | Built. Check licence per item. Unknown, NC and ND items are stream only. |
-| Jamendo | Yes | No | Built, stream only, through the backend. A paid app needs a commercial agreement first. Credit + backlink required. |
-| Audius | Yes | No | Not built. Read API terms and get a key first. |
-| Internet radio | Yes | No | Not built. Public stream endpoints only. |
+| Internet Archive | Yes | Only when item metadata indicates a supported permission | Built. Check rights and attribution per item. Unknown, NC and ND items are stream-only. |
+| Audius | — | — | Not built or approved. No provider integration is planned in this task. |
+| Internet radio | — | — | Not built or approved. No provider integration is planned in this task. |
 | YouTube, Piped, social platforms | — | — | Do not build. |
 
 - **Download gate**: offer downloads only when both `canDownload` and `downloadAllowed` are true.
-- **Internet Archive**: check each item licence; unknown, NC, and ND items are stream-only.
-- **Jamendo**: stream through the backend only; commercial use requires an agreement.
-- **Attribution**: show each online track's source, credit, and licence link.
+- **Internet Archive**: evaluate each item's rights metadata; unknown, NC, and ND items are stream-only.
+- **Attribution**: show each online track's source, credit, and licence link when available.
+- **Backend**: retained for health checks and update metadata. Discover search does not require it.

@@ -9,6 +9,8 @@ import 'package:nm_vibe/core/audio/audio_handler.dart';
 import 'package:nm_vibe/core/utils/logger.dart';
 import 'package:nm_vibe/data/models/song_model.dart';
 
+import 'playback_source_resolver.dart';
+
 /// Immutable snapshot of everything the player UI needs.
 @immutable
 class PlayerState {
@@ -52,6 +54,8 @@ class PlayerState {
       : null;
 
   bool get isBuffering => loading;
+  bool get canRetry => hasSong && !loading && error != null;
+  bool get canSkip => canRetry && next != null;
 
   double get progress {
     if (duration.inMilliseconds <= 0) return 0;
@@ -115,8 +119,9 @@ class PlayerController extends StateNotifier<PlayerState> {
   final LibraryRepository _repository;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   Timer? _sleepTimer;
-  Timer? _playbackErrorTimer;
   String? _lastRecordedSongId;
+  bool _retryInProgress = false;
+  bool _skipInProgress = false;
 
   NmVibeAudioHandler get handler => _handler;
 
@@ -141,25 +146,38 @@ class PlayerController extends StateNotifier<PlayerState> {
 
   void _onPlaybackError(String message) {
     if (!mounted) return;
-    _playbackErrorTimer?.cancel();
     state = state.copyWith(loading: false, error: message);
-    _playbackErrorTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) state = state.copyWith(clearError: true);
-    });
   }
 
   void _onMediaItem(MediaItem? item) {
     if (!mounted || item == null) return;
     final index = state.queue.indexWhere((song) => song.id == item.id);
+    final song = index >= 0 ? state.queue[index] : null;
+    if (song != null && item.extras?['downloadFallback'] == true) {
+      final fallbackPath = item.extras?['path'];
+      if (fallbackPath is String && fallbackPath.isNotEmpty) {
+        final updated = song.copyWith(
+          filePath: fallbackPath,
+          isDownloaded: false,
+        );
+        final queue = List<Song>.of(state.queue)..[index] = updated;
+        state = state.copyWith(queue: queue);
+        unawaited(
+          _repository.updateSong(updated).catchError((Object error) {
+            _log.w('Could not save the stream fallback for ${song.id}', error);
+          }),
+        );
+      }
+    }
     if (index >= 0 && index != state.currentIndex) {
       state = state.copyWith(currentIndex: index);
     }
-    final song = index >= 0 ? state.queue[index] : null;
-    if (song != null && _lastRecordedSongId != song.id) {
-      _lastRecordedSongId = song.id;
+    final currentSong = index >= 0 ? state.queue[index] : null;
+    if (currentSong != null && _lastRecordedSongId != currentSong.id) {
+      _lastRecordedSongId = currentSong.id;
       unawaited(
-        _repository.recordPlay(song.id).catchError((Object error) {
-          _log.w('Could not record play for ${song.id}', error);
+        _repository.recordPlay(currentSong.id).catchError((Object error) {
+          _log.w('Could not record play for ${currentSong.id}', error);
         }),
       );
     }
@@ -208,8 +226,15 @@ class PlayerController extends StateNotifier<PlayerState> {
       clearError: true,
     );
     try {
+      final preparedSongs = <Song>[];
+      for (var index = 0; index < songs.length; index++) {
+        final song = songs[index];
+        preparedSongs.add(index == safeIndex ? await _prepareSong(song) : song);
+      }
+      if (!mounted) return;
+      state = state.copyWith(queue: preparedSongs);
       await _handler.setQueue(
-        songs.map(_toMediaItem).toList(growable: false),
+        preparedSongs.map(mediaItemForSong).toList(growable: false),
         initialIndex: safeIndex,
         initialPosition: initialPosition,
         autoPlay: autoPlay,
@@ -217,8 +242,58 @@ class PlayerController extends StateNotifier<PlayerState> {
     } catch (error, stackTrace) {
       _log.e('Could not start playback', error, stackTrace);
       if (!mounted) return;
-      state = state.copyWith(loading: false, error: '$error');
+      state = state.copyWith(
+        loading: false,
+        error: _playbackFailureMessage(error),
+      );
     }
+  }
+
+  Future<void> retry() async {
+    if (!state.canRetry || _retryInProgress) return;
+    _retryInProgress = true;
+    try {
+      await playSongs(
+        state.queue,
+        initialIndex: state.currentIndex,
+        initialPosition: state.position,
+      );
+    } finally {
+      _retryInProgress = false;
+    }
+  }
+
+  Future<void> skipFailedTrack() async {
+    if (!state.canSkip || _skipInProgress) {
+      if (state.error != null && state.next == null) {
+        state = state.copyWith(error: 'No next track is available.');
+      }
+      return;
+    }
+    _skipInProgress = true;
+    try {
+      final nextIndex = state.currentIndex + 1;
+      await playSongs(state.queue, initialIndex: nextIndex);
+    } catch (error, stackTrace) {
+      _log.e('Could not skip the failed track', error, stackTrace);
+      if (mounted) {
+        state = state.copyWith(error: 'Could not skip to the next track.');
+      }
+    } finally {
+      _skipInProgress = false;
+    }
+  }
+
+  Future<Song> _prepareSong(Song song) async {
+    final prepared = await prepareSongForPlayback(song);
+    if (song.isDownloaded && !prepared.isDownloaded) {
+      await _repository.updateSong(prepared);
+    }
+    return prepared;
+  }
+
+  String _playbackFailureMessage(Object error) {
+    return playbackFailureMessage(error);
   }
 
   Future<void> playSong(Song song, {List<Song>? context}) async {
@@ -238,7 +313,10 @@ class PlayerController extends StateNotifier<PlayerState> {
     } catch (error, stackTrace) {
       _log.e('Could not change playback state', error, stackTrace);
       if (mounted) {
-        state = state.copyWith(loading: false, error: '$error');
+        state = state.copyWith(
+          loading: false,
+          error: _playbackFailureMessage(error),
+        );
       }
     }
   }
@@ -282,22 +360,42 @@ class PlayerController extends StateNotifier<PlayerState> {
   }
 
   Future<void> addToQueue(Song song) async {
-    if (!state.hasQueue) {
-      await playSongs(<Song>[song]);
+    final Song prepared;
+    try {
+      prepared = await _prepareSong(song);
+    } catch (error, stackTrace) {
+      _log.e('Could not prepare track for playback', error, stackTrace);
+      if (mounted) {
+        state = state.copyWith(error: _playbackFailureMessage(error));
+      }
       return;
     }
-    await _handler.addToQueueEnd(<MediaItem>[_toMediaItem(song)]);
-    state = state.copyWith(queue: <Song>[...state.queue, song]);
+    if (!state.hasQueue) {
+      await playSongs(<Song>[prepared]);
+      return;
+    }
+    await _handler.addToQueueEnd(<MediaItem>[mediaItemForSong(prepared)]);
+    state = state.copyWith(queue: <Song>[...state.queue, prepared]);
   }
 
   Future<void> playNext(Song song) async {
+    final Song prepared;
+    try {
+      prepared = await _prepareSong(song);
+    } catch (error, stackTrace) {
+      _log.e('Could not prepare track for playback', error, stackTrace);
+      if (mounted) {
+        state = state.copyWith(error: _playbackFailureMessage(error));
+      }
+      return;
+    }
     if (!state.hasQueue) {
-      await playSongs(<Song>[song]);
+      await playSongs(<Song>[prepared]);
       return;
     }
     final queue = List<Song>.of(state.queue)
-      ..insert((state.currentIndex + 1).clamp(0, state.queue.length), song);
-    await _handler.addNext(<MediaItem>[_toMediaItem(song)]);
+      ..insert((state.currentIndex + 1).clamp(0, state.queue.length), prepared);
+    await _handler.addNext(<MediaItem>[mediaItemForSong(prepared)]);
     state = state.copyWith(queue: queue);
   }
 
@@ -377,28 +475,9 @@ class PlayerController extends StateNotifier<PlayerState> {
     _sleepTimer = null;
   }
 
-  MediaItem _toMediaItem(Song song) {
-    return MediaItem(
-      id: song.id,
-      title: song.displayTitle,
-      artist: song.displayArtist,
-      album: song.displayAlbum,
-      duration: song.duration,
-      extras: <String, dynamic>{
-        'path': song.isDownloaded
-            ? song.filePath
-            : (song.streamUrl ?? song.filePath),
-        'artworkKey': song.artworkKey,
-        'artworkUrl': song.remoteArtworkUrl,
-        'source': song.source,
-      },
-    );
-  }
-
   @override
   void dispose() {
     _cancelSleepTimer();
-    _playbackErrorTimer?.cancel();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

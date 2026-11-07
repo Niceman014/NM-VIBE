@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:nm_vibe/data/downloads/download_storage.dart';
 import 'package:nm_vibe/data/models/download_record.dart';
 import 'package:nm_vibe/data/models/song_model.dart';
+
 import 'music_source.dart';
 
 class InternetArchiveTrack implements MusicTrack {
@@ -45,11 +46,13 @@ class InternetArchiveTrack implements MusicTrack {
   @override
   String? get licenseUrl {
     final uri = Uri.tryParse(licenseStatement);
-    return uri != null && uri.hasScheme &&
+    return uri != null &&
+            uri.hasScheme &&
             (uri.scheme == 'https' || uri.scheme == 'http')
         ? uri.replace(scheme: 'https').toString()
         : null;
   }
+
   @override
   String get pageUrl => 'https://archive.org/details/$id';
   @override
@@ -106,9 +109,8 @@ bool internetArchiveCopyAllowed(String license) {
       path == '/publicdomain/zero/1.0') {
     return true;
   }
-  return RegExp(
-    r'^/licenses/by(-sa)?/(1\.0|2\.0|2\.5|3\.0|4\.0)/?$',
-  ).hasMatch(path);
+  return RegExp(r'^/licenses/by(-sa)?/(1\.0|2\.0|2\.5|3\.0|4\.0)/?$')
+      .hasMatch(path);
 }
 
 class InternetArchiveService {
@@ -129,6 +131,7 @@ class InternetArchiveService {
        _downloadClientFactory = downloadClientFactory ?? http.Client.new;
 
   static const _audioExtensions = ['.mp3', '.ogg', '.m4a', '.flac'];
+  static const _searchPageSize = 20;
   final http.Client _client;
   final bool _ownsClient;
   final Connectivity _connectivity;
@@ -141,19 +144,33 @@ class InternetArchiveService {
 
   bool get isConfigured => true;
 
-  Future<List<InternetArchiveTrack>> search(String query, {int page = 1}) async {
-    final text = query.trim();
-    if (text.length > 120 || page < 1 || page > 100) {
+  Future<List<InternetArchiveTrack>> search(
+    String query, {
+    int page = 1,
+  }) async {
+    final text = query.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+    if (text.length > 120 || page < 1) {
       throw ArgumentError('Search text or page is outside the allowed range.');
     }
-    final escaped = text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    final searchExpression = text.isEmpty
+    // Advanced Search exposes at most 10,000 sorted results. At 20 rows per
+    // page, pages after 500 are exhausted rather than sent as an invalid query.
+    if (page > 500) return const <InternetArchiveTrack>[];
+    final words = RegExp(r'[\p{L}\p{N}]+', unicode: true)
+        .allMatches(text)
+        .map((match) => match.group(0)!)
+        .toSet()
+        .toList(growable: false);
+    if (text.isNotEmpty && words.isEmpty) {
+      return const <InternetArchiveTrack>[];
+    }
+    final searchExpression = words.isEmpty
         ? 'mediatype:audio'
-        : 'mediatype:audio AND (title:"$escaped" OR creator:"$escaped")';
+        : 'mediatype:audio AND ((title:(${_prefixQuery(words)})) OR '
+              '(creator:(${_prefixQuery(words)})))';
     final uri = Uri.https('archive.org', '/advancedsearch.php', {
       'q': searchExpression,
       'fl[]': ['identifier', 'title', 'creator', 'licenseurl'],
-      'rows': '12',
+      'rows': '$_searchPageSize',
       'page': '$page',
       'output': 'json',
     });
@@ -161,7 +178,9 @@ class InternetArchiveService {
         .get(uri, headers: const {'accept': 'application/json'})
         .timeout(const Duration(seconds: 12));
     if (response.statusCode != 200) {
-      throw HttpException('Internet Archive search failed (${response.statusCode}).');
+      throw HttpException(
+        'Internet Archive search failed (${response.statusCode}).',
+      );
     }
     final decoded = jsonDecode(response.body);
     Object? docs;
@@ -169,26 +188,45 @@ class InternetArchiveService {
       final responseBody = decoded['response'];
       if (responseBody is Map) docs = responseBody['docs'];
     }
-    if (docs is! List) throw const FormatException('Invalid Internet Archive search response.');
-    final results = <InternetArchiveTrack>[];
-    for (final doc in docs.take(12)) {
+    if (docs is! List) {
+      throw const FormatException('Invalid Internet Archive search response.');
+    }
+    final uniqueDocs = <Map>[];
+    final seenIdentifiers = <String>{};
+    for (final doc in docs.take(_searchPageSize)) {
       if (doc is! Map) continue;
       final identifier = doc['identifier']?.toString() ?? '';
-      if (!RegExp(r'^[A-Za-z0-9._-]{1,100}$').hasMatch(identifier)) continue;
-      try {
-        final track = await _loadTrack(identifier, doc);
-        if (track != null) results.add(track);
-      } on Object {
-        // One unavailable or incomplete archive item must not hide other rows.
+      if (!RegExp(r'^[A-Za-z0-9._-]{1,100}$').hasMatch(identifier) ||
+          !seenIdentifiers.add(identifier)) {
+        continue;
       }
+      uniqueDocs.add(doc);
+    }
+
+    final results = <InternetArchiveTrack>[];
+    // Bound the metadata fan-out so larger pages don't issue 20 requests at
+    // once, while avoiding the old one-request-at-a-time delay.
+    for (var offset = 0; offset < uniqueDocs.length; offset += 4) {
+      final batch = uniqueDocs.skip(offset).take(4);
+      final tracks = await Future.wait(
+        batch.map((doc) async {
+          try {
+            return await _loadTrack(doc['identifier'].toString(), doc);
+          } on Object {
+            // One unavailable or incomplete archive item must not hide others.
+            return null;
+          }
+        }),
+      );
+      results.addAll(tracks.whereType<InternetArchiveTrack>());
     }
     return results;
   }
 
-  Future<InternetArchiveTrack?> _loadTrack(
-    String identifier,
-    Map doc,
-  ) async {
+  String _prefixQuery(List<String> words) =>
+      words.map((word) => '$word*').join(' AND ');
+
+  Future<InternetArchiveTrack?> _loadTrack(String identifier, Map doc) async {
     final cached = _trackCache[identifier];
     if (cached != null) return cached;
     final uri = Uri.https('archive.org', '/metadata/$identifier');
@@ -197,14 +235,14 @@ class InternetArchiveService {
         .timeout(const Duration(seconds: 12));
     if (response.statusCode != 200) return null;
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map || decoded['metadata'] is! Map || decoded['files'] is! List) {
+    if (decoded is! Map ||
+        decoded['metadata'] is! Map ||
+        decoded['files'] is! List) {
       return null;
     }
     final metadata = Map<String, Object?>.from(decoded['metadata'] as Map);
-    var license = (metadata['licenseurl'] ?? metadata['rights'])
-            ?.toString()
-            .trim() ??
-        '';
+    var license =
+        (metadata['licenseurl'] ?? metadata['rights'])?.toString().trim() ?? '';
     final licenseUri = Uri.tryParse(license);
     if (licenseUri?.scheme == 'http' &&
         licenseUri?.host == 'creativecommons.org') {
@@ -276,75 +314,116 @@ class InternetArchiveService {
       cancelled = true;
       client.close();
     }
+
     unawaited(() async {
       try {
         if (!track.downloadAllowed) {
-          throw StateError('This Internet Archive item is stream-only under its recorded license.');
+          throw StateError(
+            'This Internet Archive item is stream-only under its recorded license.',
+          );
         }
         if (_wifiOnly()) {
           final hasWifiAvailable = hasWifi != null
               ? await hasWifi!()
-              : (await _connectivity.checkConnectivity())
-                  .contains(ConnectivityResult.wifi);
+              : (await _connectivity.checkConnectivity()).contains(
+                  ConnectivityResult.wifi,
+                );
           if (!hasWifiAvailable) {
-            throw StateError('Wi-Fi-only downloads are enabled. Connect to Wi-Fi to continue.');
+            throw StateError(
+              'Wi-Fi-only downloads are enabled. Connect to Wi-Fi to continue.',
+            );
           }
         }
         if (!InternetArchiveService._isArchiveUrl(track.downloadUrl)) {
-          throw const FormatException('Unexpected Internet Archive download URL.');
+          throw const FormatException(
+            'Unexpected Internet Archive download URL.',
+          );
         }
         final directory = await _storage.sourceDirectory('internet_archive');
         final safeId = track.id.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-        final destination = File(p.join(directory.path, '$safeId.${track.codec.toLowerCase()}'));
+        final destination = File(
+          p.join(directory.path, '$safeId.${track.codec.toLowerCase()}'),
+        );
         if (await destination.exists()) {
           final existingSize = await destination.length();
-          await _storage.saveRecord(DownloadRecord(
-            id: 'internet_archive:${track.id}',
-            source: track.sourceId,
-            localPath: destination.path,
-            codec: track.codec,
-            bitrateKbps: track.bitrateKbps,
-            license: track.licenseStatement,
-            downloadedAt: await destination.lastModified(),
-            sizeBytes: existingSize,
-          ));
-          if (!completer.isCompleted) completer.complete(destination);
-          return;
+          final recordId = 'internet_archive:${track.id}';
+          final existingRecord = (await _storage.records())
+              .where((record) => record.id == recordId)
+              .firstOrNull;
+          final registeredAtThisPath =
+              existingRecord?.localPath == destination.path &&
+              existingRecord?.sizeBytes == existingSize;
+          final matchesPublishedSize =
+              track.expectedSizeBytes == null ||
+              track.expectedSizeBytes == existingSize;
+          if (existingSize > 0 &&
+              registeredAtThisPath &&
+              matchesPublishedSize) {
+            if (!completer.isCompleted) completer.complete(destination);
+            return;
+          }
+
+          // A final-name file without a matching record and size is an orphan
+          // or a damaged copy. Never turn it into a successful download merely
+          // by writing a new index row; fetch a fresh verified response.
+          if (existingRecord?.localPath == destination.path) {
+            await _storage.deleteRecord(recordId);
+          } else if (await destination.exists()) {
+            await destination.delete();
+          }
         }
         final currentBytes = await _storage.sizeBytes();
         if (currentBytes >= _storageLimitBytes()) {
-          throw StateError('Download storage limit reached. Delete downloads or raise the limit in Settings.');
+          throw StateError(
+            'Download storage limit reached. Delete downloads or raise the limit in Settings.',
+          );
         }
         if (track.expectedSizeBytes != null &&
             currentBytes + track.expectedSizeBytes! > _storageLimitBytes()) {
-          throw StateError('This download would exceed the configured storage limit.');
+          throw StateError(
+            'This download would exceed the configured storage limit.',
+          );
         }
         final tempFile = File(p.join(directory.path, '$safeId.part'));
         temporary = tempFile;
         final request = http.Request('GET', Uri.parse(track.downloadUrl));
-        final response = await client.send(request).timeout(const Duration(seconds: 20));
+        final response = await client
+            .send(request)
+            .timeout(const Duration(seconds: 20));
         if (response.statusCode != 200) {
-          throw HttpException('Internet Archive download failed (${response.statusCode}).');
+          throw HttpException(
+            'Internet Archive download failed (${response.statusCode}).',
+          );
         }
         final responseUri = response.request?.url;
         if (responseUri != null && !_isArchiveUri(responseUri)) {
-          throw const FormatException('Internet Archive redirected to an unexpected host.');
+          throw const FormatException(
+            'Internet Archive redirected to an unexpected host.',
+          );
         }
         final total = response.contentLength;
         if (total == null && track.expectedSizeBytes == null) {
-          throw StateError('The archive did not provide a verifiable file size.');
+          throw StateError(
+            'The archive did not provide a verifiable file size.',
+          );
         }
         if (total != null && currentBytes + total > _storageLimitBytes()) {
-          throw StateError('This download would exceed the configured storage limit.');
+          throw StateError(
+            'This download would exceed the configured storage limit.',
+          );
         }
         final sink = tempFile.openWrite();
         var received = 0;
         try {
-          await for (final chunk in response.stream.timeout(const Duration(seconds: 30))) {
+          await for (final chunk in response.stream.timeout(
+            const Duration(seconds: 30),
+          )) {
             if (cancelled) throw const DownloadCancelled();
             received += chunk.length;
             if (currentBytes + received > _storageLimitBytes()) {
-              throw StateError('This download exceeded the configured storage limit.');
+              throw StateError(
+                'This download exceeded the configured storage limit.',
+              );
             }
             sink.add(chunk);
             onProgress(received, total);
@@ -360,7 +439,9 @@ class InternetArchiveService {
             (total != null && received != total) ||
             (track.expectedSizeBytes != null &&
                 received != track.expectedSizeBytes)) {
-          throw const FormatException('Downloaded file size did not match the server response.');
+          throw const FormatException(
+            'Downloaded file size did not match the server response.',
+          );
         }
         final file = await tempFile.rename(destination.path);
         final record = DownloadRecord(
@@ -385,7 +466,10 @@ class InternetArchiveService {
           }
         }
         if (!completer.isCompleted) {
-          completer.completeError(cancelled ? const DownloadCancelled() : error, stackTrace);
+          completer.completeError(
+            cancelled ? const DownloadCancelled() : error,
+            stackTrace,
+          );
         }
       } finally {
         client.close();
@@ -434,16 +518,22 @@ class InternetArchiveMusicSource implements MusicSource {
     }
     return null;
   }
+
   @override
   DownloadTask startDownload(
     MusicTrack track, {
     required DownloadProgressCallback onProgress,
   }) {
     if (track is! InternetArchiveTrack) {
-      throw ArgumentError.value(track, 'track', 'Expected an Internet Archive track.');
+      throw ArgumentError.value(
+        track,
+        'track',
+        'Expected an Internet Archive track.',
+      );
     }
     return service.startDownload(track, onProgress: onProgress);
   }
+
   @override
   String attributionFor(MusicTrack track) {
     if (track is InternetArchiveTrack) {
@@ -451,6 +541,7 @@ class InternetArchiveMusicSource implements MusicSource {
     }
     return '${track.title} by ${track.artist} via Internet Archive';
   }
+
   @override
   void close() => service.close();
 }

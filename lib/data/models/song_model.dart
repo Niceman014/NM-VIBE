@@ -55,7 +55,7 @@ class Song {
   /// Identifier for the cached artwork file (album level), if any.
   final String? artworkKey;
 
-  /// Catalog that supplied this track, for example `jamendo`.
+  /// Identifier for the online catalog that supplied this track, if any.
   final String? source;
   final String? streamUrl;
   final String? downloadUrl;

@@ -635,7 +635,7 @@ extension _SettingsPageSections on _SettingsPageState {
             applicationName: AppConstants.appName,
             applicationVersion: _version,
             applicationLegalese:
-                'Proprietary software. Third-party licenses apply.',
+                'Free and open-source software. Third-party licenses apply.',
           ),
         ),
         Padding(

@@ -68,7 +68,7 @@ void main() {
     final repository = await SembastLibraryRepository.openInMemory();
     addTearDown(repository.close);
     final downloaded = Song(
-      id: 'jamendo:123',
+      id: 'legacy_catalog:123',
       filePath: downloadedFile.path,
       title: 'Offline track',
       artist: 'Artist',
@@ -77,8 +77,8 @@ void main() {
       duration: const Duration(minutes: 2),
       fileSize: await downloadedFile.length(),
       addedAt: DateTime.now(),
-      source: 'jamendo',
-      streamUrl: 'https://prod-1.storage.jamendo.com/?trackid=123',
+      source: 'legacy_catalog',
+      streamUrl: 'https://catalog.example/audio/123.mp3',
       isDownloaded: true,
     );
     await repository.saveSongs(<Song>[downloaded]);

@@ -30,48 +30,65 @@ extension _LibraryPageHeader on _LibraryPageState {
               '${albums.length} ${albums.length == 1 ? 'album' : 'albums'} · '
               '${artists.length} ${artists.length == 1 ? 'artist' : 'artists'}';
 
+    final headerLabel = Text(
+      AppConstants.appName.toUpperCase(),
+      style: theme.textTheme.labelSmall?.copyWith(
+        letterSpacing: 2.6,
+        fontWeight: FontWeight.w800,
+        color: scheme.primary,
+      ),
+    );
+    final headerActions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!PlatformInfo.usesMediaStoreScanner)
+          _HeaderIconButton(
+            tooltip: 'Add music folder',
+            icon: Icons.create_new_folder_outlined,
+            onPressed: scanState.scanning ? null : onAddFolder,
+          ),
+        _HeaderIconButton(
+          tooltip: scanState.scanning ? 'Scanning…' : 'Scan library',
+          icon: Icons.refresh_rounded,
+          onPressed: scanState.scanning ? null : onScan,
+          busy: scanState.scanning,
+        ),
+        _SortMenuButton(
+          sortMode: sortMode,
+          ascending: sortAscending,
+          onSortModeChanged: settingsController.setSongsSortMode,
+          onToggleAscending: () =>
+              settingsController.setSongsSortAscending(!sortAscending),
+        ),
+        _HeaderIconButton(
+          tooltip: sortAscending ? 'Sort descending' : 'Sort ascending',
+          icon: sortAscending
+              ? Icons.arrow_upward_rounded
+              : Icons.arrow_downward_rounded,
+          onPressed: () =>
+              settingsController.setSongsSortAscending(!sortAscending),
+        ),
+      ],
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              AppConstants.appName.toUpperCase(),
-              style: theme.textTheme.labelSmall?.copyWith(
-                letterSpacing: 2.6,
-                fontWeight: FontWeight.w800,
-                color: scheme.primary,
-              ),
-            ),
-            const Spacer(),
-            if (!PlatformInfo.usesMediaStoreScanner)
-              _HeaderIconButton(
-                tooltip: 'Add music folder',
-                icon: Icons.create_new_folder_outlined,
-                onPressed: scanState.scanning ? null : onAddFolder,
-              ),
-            _HeaderIconButton(
-              tooltip: scanState.scanning ? 'Scanning…' : 'Scan library',
-              icon: Icons.refresh_rounded,
-              onPressed: scanState.scanning ? null : onScan,
-              busy: scanState.scanning,
-            ),
-            _SortMenuButton(
-              sortMode: sortMode,
-              ascending: sortAscending,
-              onSortModeChanged: settingsController.setSongsSortMode,
-              onToggleAscending: () =>
-                  settingsController.setSongsSortAscending(!sortAscending),
-            ),
-            _HeaderIconButton(
-              tooltip: sortAscending ? 'Sort descending' : 'Sort ascending',
-              icon: sortAscending
-                  ? Icons.arrow_upward_rounded
-                  : Icons.arrow_downward_rounded,
-              onPressed: () =>
-                  settingsController.setSongsSortAscending(!sortAscending),
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 440) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  headerLabel,
+                  Align(alignment: Alignment.centerRight, child: headerActions),
+                ],
+              );
+            }
+            return Row(
+              children: [headerLabel, const Spacer(), headerActions],
+            );
+          },
         ),
         const SizedBox(height: ThemeConstants.spacing8),
         Text(
@@ -97,17 +114,20 @@ extension _LibraryPageHeader on _LibraryPageState {
           onClear: onClearSearch,
         ),
         const SizedBox(height: ThemeConstants.spacing12),
-        Row(
-          children: [
-            Expanded(
-              child: _SegmentedTabs(tab: _tab, onChanged: onTabChanged),
-            ),
-            const SizedBox(width: ThemeConstants.spacing8),
-            _FavouritesPill(
-              selected: _favouritesOnly,
-              onTap: onToggleFavourites,
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              Expanded(
+                child: _SegmentedTabs(tab: _tab, onChanged: onTabChanged),
+              ),
+              const SizedBox(width: ThemeConstants.spacing8),
+              _FavouritesPill(
+                selected: _favouritesOnly,
+                onTap: onToggleFavourites,
+                compact: constraints.maxWidth < 440,
+              ),
+            ],
+          ),
         ),
       ],
     );

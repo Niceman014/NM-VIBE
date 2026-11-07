@@ -7,12 +7,18 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:nm_vibe/core/utils/logger.dart';
 import 'package:nm_vibe/shared/providers/music_providers.dart';
+import 'package:nm_vibe/data/downloads/download_task.dart';
+import 'package:nm_vibe/data/downloads/download_manager.dart';
+import 'package:nm_vibe/data/downloads/offline_index.dart';
 import 'package:nm_vibe/data/repositories/music_repository.dart';
+import 'package:nm_vibe/data/repositories/music_search_ranking.dart';
 import 'package:nm_vibe/data/sources/music_source.dart';
 import 'package:nm_vibe/core/constants/theme_constants.dart';
 import 'package:nm_vibe/shared/providers/app_providers.dart';
+import 'package:nm_vibe/shared/navigation/open_downloads.dart';
 import 'package:nm_vibe/shared/widgets/album_art.dart';
 import 'package:nm_vibe/shared/widgets/loading_skeleton.dart';
+
 import 'discover_error_message.dart';
 
 const _logger = AppLogger('Discover');
@@ -30,9 +36,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   List<MusicTrack> _tracks = const <MusicTrack>[];
   Timer? _debounce;
   String? _error;
+  String? _loadMoreError;
   bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _currentPage = 0;
   int _searchGeneration = 0;
-  final Set<DownloadTask> _activeDownloads = <DownloadTask>{};
+  List<String> _failedSourceIds = const <String>[];
+  final Map<String, DownloadJob> _activeDownloads = <String, DownloadJob>{};
 
   @override
   void initState() {
@@ -44,30 +55,62 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   @override
   void dispose() {
     _debounce?.cancel();
-    for (final task in _activeDownloads) {
+    for (final task in _activeDownloads.values) {
       unawaited(task.cancel());
     }
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _search(String query) async {
+  Future<void> _search(String query, {int? generation}) async {
     if (!_musicRepository.isConfigured) return;
-    final generation = ++_searchGeneration;
+    _debounce?.cancel();
+    final requestGeneration = generation ?? ++_searchGeneration;
+    if (requestGeneration != _searchGeneration) return;
     setState(() {
       _loading = true;
+      _loadingMore = false;
+      _hasMore = false;
+      _currentPage = 0;
+      _tracks = const <MusicTrack>[];
       _error = null;
+      _loadMoreError = null;
+      _failedSourceIds = const <String>[];
     });
     try {
-      final tracks = await _musicRepository.search(query);
-      if (!mounted || generation != _searchGeneration) return;
+      final page = await _musicRepository.searchPage(
+        query,
+        page: 1,
+        onSourceUpdate: (update) {
+          if (!mounted || requestGeneration != _searchGeneration) return;
+          if (update.tracks.isEmpty && !update.failed) return;
+          setState(() {
+            if (update.tracks.isNotEmpty) {
+              _tracks = rankMusicTracks(
+                query,
+                deduplicateMusicTracks([..._tracks, ...update.tracks]),
+              );
+            }
+            if (update.failed) {
+              _failedSourceIds = <String>{
+                ..._failedSourceIds,
+                update.sourceId,
+              }.toList(growable: false);
+            }
+          });
+        },
+      );
+      if (!mounted || requestGeneration != _searchGeneration) return;
       setState(() {
-        _tracks = tracks;
+        _tracks = page.tracks;
+        _currentPage = 1;
+        _hasMore = page.hasMore;
+        _failedSourceIds = page.failedSourceIds;
         _loading = false;
       });
     } catch (error, stackTrace) {
       _logger.e('Search failed', error, stackTrace);
-      if (!mounted || generation != _searchGeneration) return;
+      if (!mounted || requestGeneration != _searchGeneration) return;
       setState(() {
         _loading = false;
         _error = discoverErrorMessage(error);
@@ -76,9 +119,59 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   }
 
   void _onSearchChanged(String query) {
-    setState(() {});
+    final generation = ++_searchGeneration;
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), () => _search(query));
+    setState(() {
+      _loading = _musicRepository.isConfigured;
+      _loadingMore = false;
+      _hasMore = false;
+      _currentPage = 0;
+      _tracks = const <MusicTrack>[];
+      _error = null;
+      _loadMoreError = null;
+      _failedSourceIds = const <String>[];
+    });
+    _debounce = Timer(
+      const Duration(milliseconds: 400),
+      () => unawaited(_search(query, generation: generation)),
+    );
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || _loadingMore || !_hasMore) return;
+    final generation = _searchGeneration;
+    final nextPage = _currentPage + 1;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
+    try {
+      final page = await _musicRepository.searchPage(
+        _searchController.text,
+        page: nextPage,
+      );
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _tracks = rankMusicTracks(
+          _searchController.text,
+          deduplicateMusicTracks([..._tracks, ...page.tracks]),
+        );
+        _currentPage = nextPage;
+        _hasMore = page.hasMore;
+        _failedSourceIds = <String>{
+          ..._failedSourceIds,
+          ...page.failedSourceIds,
+        }.toList(growable: false);
+        _loadingMore = false;
+      });
+    } catch (error, stackTrace) {
+      _logger.e('Loading more search results failed', error, stackTrace);
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _loadingMore = false;
+        _loadMoreError = discoverErrorMessage(error);
+      });
+    }
   }
 
   Future<void> _play(MusicTrack track) async {
@@ -110,27 +203,46 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
   }
 
-  Future<void> _download(MusicTrack track) async {
-    final progress = ValueNotifier<(int, int?)>((0, null));
-    var progressClosed = false;
-    final operation = _musicRepository.startDownload(
-      track,
-      onProgress: (received, total) {
-        if (!progressClosed) progress.value = (received, total);
-      },
-    );
-    _activeDownloads.add(operation);
+  Future<void> _download(
+    MusicTrack track, {
+    bool retry = false,
+    bool repair = false,
+  }) async {
+    final manager = ref.read(downloadManagerProvider);
+    late final DownloadJob job;
+    try {
+      final taskId = '${track.sourceId}:${track.id}';
+      job = repair
+          ? await manager.redownload(track)
+          : retry
+          ? await manager.retry(taskId)
+          : await manager.enqueue(track);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not save track: $error')));
+      }
+      return;
+    }
+    if (!mounted) {
+      unawaited(job.cancel());
+      return;
+    }
+    _activeDownloads[job.id] = job;
     var dialogDismissed = false;
     final dialog = showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         title: Text('Saving ${track.title}'),
-        content: ValueListenableBuilder<(int, int?)>(
-          valueListenable: progress,
-          builder: (context, value, _) {
-            final received = value.$1;
-            final total = value.$2;
+        content: StreamBuilder<ManagedDownloadTask?>(
+          stream: manager.watchTask(job.id),
+          initialData: manager.task(job.id),
+          builder: (context, snapshot) {
+            final state = snapshot.data;
+            final received = state?.receivedBytes ?? 0;
+            final total = state?.totalBytes;
             final fraction = total == null || total <= 0
                 ? null
                 : (received / total).clamp(0.0, 1.0);
@@ -151,7 +263,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         actions: [
           TextButton(
             onPressed: () async {
-              await operation.cancel();
+              await job.cancel();
               if (dialogContext.mounted) {
                 dialogDismissed = true;
                 Navigator.of(dialogContext).pop();
@@ -163,19 +275,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       ),
     );
     try {
-      final file = await operation.result;
+      await job.result;
+      ref.invalidate(offlineIndexProvider);
       if (!dialogDismissed && mounted) {
         dialogDismissed = true;
         Navigator.of(context).pop();
         await dialog;
       }
-      final downloaded = track.toSong().copyWith(
-        filePath: file.path,
-        fileSize: await file.length(),
-        modifiedAt: await file.lastModified(),
-        isDownloaded: true,
-      );
-      await ref.read(libraryRepositoryProvider).updateSong(downloaded);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -197,10 +303,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ).showSnackBar(SnackBar(content: Text('Could not save track: $error')));
       }
     } finally {
-      progressClosed = true;
-      progress.dispose();
-      _activeDownloads.remove(operation);
+      _activeDownloads.remove(job.id);
     }
+  }
+
+  String _downloadUnavailableReason(MusicTrack track) {
+    if (!_musicRepository.canDownload(track)) {
+      if (!track.downloadAllowed) {
+        return 'This item’s licence does not permit an offline copy.';
+      }
+      return 'This music source does not permit offline downloads.';
+    }
+    final uri = Uri.tryParse(track.downloadUrl ?? '');
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+      return 'A secure download URL is not available for this track.';
+    }
+    return 'This track cannot currently be saved offline.';
   }
 
   Future<void> _openTrack(MusicTrack track) async {
@@ -228,7 +346,16 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final configured = _musicRepository.isConfigured;
-    final jamendoConfigured = _musicRepository.isSourceConfigured('jamendo');
+    final songs = ref.watch(songsProvider).value ?? const [];
+    final downloadedSongIds = songs
+        .where((song) => song.isDownloaded)
+        .map((song) => song.id)
+        .toSet();
+    final offlineEntries = ref.watch(offlineIndexProvider).value ?? const [];
+    final offlineById = <String, OfflineTrackEntry>{
+      for (final entry in offlineEntries) entry.record.id: entry,
+    };
+    final manager = ref.read(downloadManagerProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -291,7 +418,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                 ],
               ),
             ),
-            if (!jamendoConfigured)
+            if (_failedSourceIds.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   ThemeConstants.spacing24,
@@ -299,13 +426,24 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   ThemeConstants.spacing24,
                   ThemeConstants.spacing8,
                 ),
-                child: Text(
-                  'Jamendo: Online search is not configured. Set BACKEND_URL in a debug build to use a local backend.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Some music sources could not be searched. Results may be incomplete.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _search(_searchController.text),
+                      child: const Text('Retry sources'),
+                    ),
+                  ],
                 ),
               ),
+            if (_loading && _tracks.isNotEmpty)
+              const LinearProgressIndicator(minHeight: 2),
             if (!configured)
               const Expanded(child: _SetupNotice())
             else if (_error != null)
@@ -352,25 +490,112 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     itemCount: _tracks.length + 1,
                     itemBuilder: (context, index) {
                       if (index == _tracks.length) {
+                        if (_loadingMore) {
+                          return const _SearchFooter(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if (_loadMoreError != null) {
+                          return _SearchFooter(
+                            child: Column(
+                              children: [
+                                Text(
+                                  _loadMoreError!,
+                                  textAlign: TextAlign.center,
+                                ),
+                                TextButton(
+                                  onPressed: _loadMore,
+                                  child: const Text('Try again'),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        if (_hasMore) {
+                          return _SearchFooter(
+                            child: OutlinedButton.icon(
+                              onPressed: _loadMore,
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: const Text('Load more'),
+                            ),
+                          );
+                        }
                         return const _CatalogAttribution();
                       }
                       final track = _tracks[index];
-                      return _MusicTrackTile(
-                        key: ValueKey<String>('${track.sourceId}:${track.id}'),
-                        track: track,
-                        credit: _musicRepository.attributionFor(track),
-                        onPlay: () => _play(track),
-                        onOpen: track.pageUrl == null
-                            ? null
-                            : () => _openTrack(track),
-                        onOpenLicense: track.licenseUrl == null
-                            ? null
-                            : () => _openLicense(track),
-                        onAddToQueue: () => _addToQueue(track),
-                        onPlayNext: () => _playNext(track),
-                        onDownload: _musicRepository.canDownload(track)
-                            ? () => _download(track)
-                            : null,
+                      final taskId = '${track.sourceId}:${track.id}';
+                      final songId = track.toSong().id;
+                      final savedEntry = offlineById[songId];
+                      final isSavedAndValid =
+                          downloadedSongIds.contains(songId) &&
+                          savedEntry?.canPlayOffline == true;
+                      final permitted =
+                          _musicRepository.canDownload(track) &&
+                          _hasSecureDownloadUrl(track);
+                      return StreamBuilder<ManagedDownloadTask?>(
+                        stream: manager.watchTask(taskId),
+                        initialData: manager.task(taskId),
+                        builder: (context, snapshot) {
+                          final task = snapshot.data;
+                          final working =
+                              task?.status == ManagedDownloadStatus.waiting ||
+                              task?.status == ManagedDownloadStatus.downloading;
+                          final failed =
+                              task?.status == ManagedDownloadStatus.failed;
+                          final downloaded = isSavedAndValid;
+                          final status = _downloadStatus(
+                            task,
+                            savedEntry,
+                            downloaded,
+                          );
+                          return _MusicTrackTile(
+                            key: ValueKey<String>(taskId),
+                            track: track,
+                            credit: _musicRepository.attributionFor(track),
+                            downloadStatus:
+                                status ??
+                                (permitted ? null : 'Not available offline'),
+                            downloadProgress: task?.progress,
+                            onPlay: () => _play(track),
+                            onOpen: track.pageUrl == null
+                                ? null
+                                : () => _openTrack(track),
+                            onOpenLicense: track.licenseUrl == null
+                                ? null
+                                : () => _openLicense(track),
+                            onAddToQueue: () => _addToQueue(track),
+                            onPlayNext: () => _playNext(track),
+                            onDownloadAction:
+                                downloaded || working || !permitted
+                                ? null
+                                : () => _download(
+                                    track,
+                                    retry: failed && savedEntry == null,
+                                    repair: savedEntry != null && !downloaded,
+                                  ),
+                            downloadActionLabel:
+                                failed || savedEntry != null && !downloaded
+                                ? 'Retry download'
+                                : 'Save offline',
+                            onCancelDownload: working
+                                ? () => _cancelDownload(manager, taskId)
+                                : null,
+                            onOpenDownloads: downloaded || savedEntry != null
+                                ? () => openDownloads(context)
+                                : null,
+                            onDownloadUnavailable:
+                                !downloaded && !working && !permitted
+                                ? () => ScaffoldMessenger.of(context)
+                                      .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            _downloadUnavailableReason(track),
+                                          ),
+                                        ),
+                                      )
+                                : null,
+                          );
+                        },
                       );
                     },
                   ),
@@ -380,6 +605,43 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ),
     );
+  }
+
+  bool _hasSecureDownloadUrl(MusicTrack track) {
+    final uri = Uri.tryParse(track.downloadUrl ?? '');
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
+  }
+
+  String? _downloadStatus(
+    ManagedDownloadTask? task,
+    OfflineTrackEntry? savedEntry,
+    bool downloaded,
+  ) {
+    if (downloaded) return 'Downloaded';
+    if (task?.status == ManagedDownloadStatus.waiting) {
+      return 'Waiting to download';
+    }
+    if (task?.status == ManagedDownloadStatus.downloading) return 'Downloading';
+    if (task?.status == ManagedDownloadStatus.failed) return 'Download failed';
+    if (task?.status == ManagedDownloadStatus.completed) {
+      return 'Checking saved file';
+    }
+    if (savedEntry?.availability == OfflineFileAvailability.missing) {
+      return 'Downloaded file is missing';
+    }
+    if (savedEntry?.availability == OfflineFileAvailability.sizeMismatch) {
+      return 'Downloaded file needs repair';
+    }
+    return null;
+  }
+
+  Future<void> _cancelDownload(DownloadManager manager, String taskId) async {
+    final job = _activeDownloads[taskId];
+    if (job != null) {
+      await job.cancel();
+    } else {
+      await manager.cancel(taskId);
+    }
   }
 }
 
@@ -393,7 +655,13 @@ class _MusicTrackTile extends StatelessWidget {
     required this.onOpenLicense,
     required this.onAddToQueue,
     required this.onPlayNext,
-    required this.onDownload,
+    required this.downloadStatus,
+    required this.downloadProgress,
+    required this.onDownloadAction,
+    required this.downloadActionLabel,
+    required this.onCancelDownload,
+    required this.onOpenDownloads,
+    required this.onDownloadUnavailable,
   });
 
   final MusicTrack track;
@@ -403,7 +671,13 @@ class _MusicTrackTile extends StatelessWidget {
   final VoidCallback? onOpenLicense;
   final VoidCallback onAddToQueue;
   final VoidCallback onPlayNext;
-  final VoidCallback? onDownload;
+  final String? downloadStatus;
+  final double? downloadProgress;
+  final VoidCallback? onDownloadAction;
+  final String downloadActionLabel;
+  final VoidCallback? onCancelDownload;
+  final VoidCallback? onOpenDownloads;
+  final VoidCallback? onDownloadUnavailable;
 
   @override
   Widget build(BuildContext context) {
@@ -469,6 +743,29 @@ class _MusicTrackTile extends StatelessWidget {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      if (downloadStatus != null) ...[
+                        const SizedBox(height: ThemeConstants.spacing4),
+                        Text(
+                          downloadStatus!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color:
+                                downloadStatus == 'Download failed' ||
+                                    downloadStatus == 'Not available offline' ||
+                                    downloadStatus ==
+                                        'Downloaded file needs repair' ||
+                                    downloadStatus ==
+                                        'Downloaded file is missing'
+                                ? scheme.error
+                                : scheme.primary,
+                          ),
+                        ),
+                        if (downloadProgress != null) ...[
+                          const SizedBox(height: ThemeConstants.spacing4),
+                          LinearProgressIndicator(value: downloadProgress),
+                        ],
+                      ],
                       if (onOpen != null || onOpenLicense != null)
                         Wrap(
                           spacing: ThemeConstants.spacing8,
@@ -517,7 +814,13 @@ class _MusicTrackTile extends StatelessWidget {
                       case 'open':
                         onOpen?.call();
                       case 'download':
-                        onDownload?.call();
+                        onDownloadAction?.call();
+                      case 'cancelDownload':
+                        onCancelDownload?.call();
+                      case 'openDownloads':
+                        onOpenDownloads?.call();
+                      case 'downloadUnavailable':
+                        onDownloadUnavailable?.call();
                     }
                   },
                   itemBuilder: (context) => [
@@ -529,10 +832,25 @@ class _MusicTrackTile extends StatelessWidget {
                       value: 'next',
                       child: Text('Play next'),
                     ),
-                    if (onDownload != null)
-                      const PopupMenuItem(
+                    if (onDownloadAction != null)
+                      PopupMenuItem(
                         value: 'download',
-                        child: Text('Save for offline listening'),
+                        child: Text(downloadActionLabel),
+                      ),
+                    if (onCancelDownload != null)
+                      const PopupMenuItem(
+                        value: 'cancelDownload',
+                        child: Text('Cancel download'),
+                      ),
+                    if (onOpenDownloads != null)
+                      const PopupMenuItem(
+                        value: 'openDownloads',
+                        child: Text('Open in Downloads'),
+                      ),
+                    if (onDownloadUnavailable != null)
+                      const PopupMenuItem(
+                        value: 'downloadUnavailable',
+                        child: Text('Why can’t I save offline?'),
                       ),
                     if (onOpen != null)
                       const PopupMenuItem(
@@ -574,17 +892,27 @@ class _CatalogAttribution extends StatelessWidget {
   }
 }
 
+class _SearchFooter extends StatelessWidget {
+  const _SearchFooter({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(ThemeConstants.spacing16),
+    child: Center(child: child),
+  );
+}
+
 class _SetupNotice extends StatelessWidget {
   const _SetupNotice();
 
   @override
   Widget build(BuildContext context) {
     return const _MessageState(
-      icon: Icons.music_note_rounded,
-      title: 'Online music is not configured',
-      message:
-          'Online search is not configured. Set BACKEND_URL when building the app '
-          'to enable Jamendo search through your local or hosted backend.',
+      icon: Icons.cloud_off_rounded,
+      title: 'Online music is unavailable',
+      message: 'No online music source is available in this build.',
     );
   }
 }

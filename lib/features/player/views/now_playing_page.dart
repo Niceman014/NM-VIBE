@@ -7,12 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/theme_constants.dart';
+
 import 'package:nm_vibe/shared/providers/app_providers.dart';
 import 'package:nm_vibe/core/scanner/artwork_service.dart';
+
 import '../../../shared/widgets/album_art.dart';
+
 import 'package:nm_vibe/data/models/song_model.dart';
+
 import '../controllers/palette_controller.dart';
 import 'player_controls.dart';
+import '../widgets/playback_error_banner.dart';
 
 /// Full-screen player pushed above the app shell.
 ///
@@ -93,6 +98,12 @@ class _NowPlayingPageState extends ConsumerState<NowPlayingPage>
     final error = ref.watch(
       playerControllerProvider.select((state) => state.error),
     );
+    final canSkipFailedTrack = ref.watch(
+      playerControllerProvider.select((state) => state.canSkip),
+    );
+    final canRetryFailedTrack = ref.watch(
+      playerControllerProvider.select((state) => state.canRetry),
+    );
 
     ref.listen<bool>(
       playerControllerProvider.select((state) => state.hasSong),
@@ -134,7 +145,20 @@ class _NowPlayingPageState extends ConsumerState<NowPlayingPage>
                 child: Column(
                   children: [
                     const _PlayerTopBar(),
-                    _ErrorBanner(error: error),
+                    if (error != null)
+                      PlaybackErrorBanner(
+                        error: error,
+                        onRetry: canRetryFailedTrack
+                            ? () => ref
+                                  .read(playerControllerProvider.notifier)
+                                  .retry()
+                            : null,
+                        onSkip: canSkipFailedTrack
+                            ? () => ref
+                                  .read(playerControllerProvider.notifier)
+                                  .skipFailedTrack()
+                            : null,
+                      ),
                     Expanded(
                       child: _PlayerContent(song: song, accent: accent),
                     ),
@@ -307,57 +331,6 @@ class _PlayerTopBar extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.error});
-
-  final String? error;
-
-  @override
-  Widget build(BuildContext context) {
-    if (error == null) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        ThemeConstants.spacing24,
-        ThemeConstants.spacing4,
-        ThemeConstants.spacing24,
-        ThemeConstants.spacing4,
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: ThemeConstants.spacing12,
-          vertical: ThemeConstants.spacing8,
-        ),
-        decoration: BoxDecoration(
-          color: scheme.errorContainer,
-          borderRadius: BorderRadius.circular(ThemeConstants.radiusMedium),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.error_outline_rounded,
-              size: 18,
-              color: scheme.onErrorContainer,
-            ),
-            const SizedBox(width: ThemeConstants.spacing8),
-            Expanded(
-              child: Text(
-                error!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onErrorContainer,
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

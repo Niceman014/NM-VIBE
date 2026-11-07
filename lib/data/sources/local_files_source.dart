@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:collection';
+
 import 'package:nm_vibe/data/repositories/library_repository.dart';
 import 'package:nm_vibe/data/models/song_model.dart';
+import 'package:nm_vibe/data/repositories/music_search_ranking.dart';
+
 import 'music_source.dart';
 
 class LocalMusicTrack implements MusicTrack {
@@ -41,9 +46,15 @@ class LocalMusicTrack implements MusicTrack {
 }
 
 class LocalFilesMusicSource implements MusicSource {
-  const LocalFilesMusicSource(this._libraryRepository);
+  LocalFilesMusicSource(this._libraryRepository);
 
   final LibraryRepository _libraryRepository;
+  List<_IndexedSong>? _index;
+  Map<String, _IndexedSong> _indexById = const <String, _IndexedSong>{};
+  Future<List<_IndexedSong>>? _indexFuture;
+  StreamSubscription<List<Song>>? _subscription;
+  final LinkedHashMap<String, List<MusicTrack>> _queryCache =
+      LinkedHashMap<String, List<MusicTrack>>();
 
   static const int _pageSize = 30;
 
@@ -58,22 +69,28 @@ class LocalFilesMusicSource implements MusicSource {
 
   @override
   Future<List<MusicTrack>> search(String query, {required int page}) async {
-    final normalized = query.trim().toLowerCase();
-    final songs = await _libraryRepository.getSongs();
+    final normalized = normalizeMusicSearchText(query);
+    final cached = _queryCache.remove(normalized);
+    if (cached != null) {
+      _queryCache[normalized] = cached;
+      return _page(cached, page);
+    }
+    final songs = await _loadIndex();
+    final scorer = MusicSearchScorer(normalized);
     final matches = normalized.isEmpty
         ? songs
-        : songs.where((song) {
-            return song.displayTitle.toLowerCase().contains(normalized) ||
-                song.displayArtist.toLowerCase().contains(normalized) ||
-                song.displayAlbum.toLowerCase().contains(normalized);
-          });
-    final start = (page - 1) * _pageSize;
-    if (start >= matches.length) return const <MusicTrack>[];
-    return matches
-        .skip(start)
-        .take(_pageSize)
-        .map(LocalMusicTrack.new)
-        .toList(growable: false);
+        : songs.where(
+            (entry) =>
+                scorer.score(entry.title, entry.artist, album: entry.album) > 0,
+          );
+    final resultTracks = normalized.isEmpty
+        ? songs
+              .map((entry) => LocalMusicTrack(entry.song))
+              .toList(growable: false)
+        : _rankMatches(matches, scorer);
+    _queryCache[normalized] = resultTracks;
+    if (_queryCache.length > 4) _queryCache.remove(_queryCache.keys.first);
+    return _page(resultTracks, page);
   }
 
   @override
@@ -92,5 +109,95 @@ class LocalFilesMusicSource implements MusicSource {
   String attributionFor(MusicTrack track) => 'From your local music library.';
 
   @override
-  void close() {}
+  void close() => unawaited(_subscription?.cancel());
+
+  Future<List<_IndexedSong>> _loadIndex() {
+    if (_index != null) return Future.value(_index);
+    return _indexFuture ??= () async {
+      final ready = Completer<List<_IndexedSong>>();
+      _subscription = _libraryRepository.watchSongs().listen(
+        (songs) {
+          final nextIndex = <_IndexedSong>[];
+          final nextIndexById = <String, _IndexedSong>{};
+          for (final song in songs) {
+            final prior = _indexById[song.id];
+            final entry = prior != null && prior.hasSameSearchFields(song)
+                ? prior.withSong(song)
+                : _IndexedSong(song);
+            nextIndex.add(entry);
+            nextIndexById[song.id] = entry;
+          }
+          _index = nextIndex;
+          _indexById = nextIndexById;
+          _queryCache.clear();
+          if (!ready.isCompleted) ready.complete(_index);
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!ready.isCompleted) ready.completeError(error, stack);
+        },
+      );
+      try {
+        return await ready.future;
+      } catch (_) {
+        _indexFuture = null;
+        rethrow;
+      }
+    }();
+  }
+
+  List<MusicTrack> _page(List<MusicTrack> tracks, int page) {
+    final start = (page - 1) * _pageSize;
+    if (start >= tracks.length) return const <MusicTrack>[];
+    return tracks.skip(start).take(_pageSize).toList(growable: false);
+  }
+
+  List<MusicTrack> _rankMatches(
+    Iterable<_IndexedSong> matches,
+    MusicSearchScorer scorer,
+  ) {
+    final ranked =
+        matches.indexed
+            .map(
+              (entry) => (
+                entry.$1,
+                entry.$2,
+                scorer.score(
+                  entry.$2.title,
+                  entry.$2.artist,
+                  album: entry.$2.album,
+                ),
+              ),
+            )
+            .toList()
+          ..sort((left, right) {
+            final scoreOrder = right.$3.compareTo(left.$3);
+            return scoreOrder == 0 ? left.$1.compareTo(right.$1) : scoreOrder;
+          });
+    return ranked
+        .map((entry) => LocalMusicTrack(entry.$2.song))
+        .toList(growable: false);
+  }
+}
+
+class _IndexedSong {
+  _IndexedSong(this.song)
+    : title = normalizeMusicSearchText(song.displayTitle),
+      artist = normalizeMusicSearchText(song.displayArtist),
+      album = normalizeMusicSearchText(song.displayAlbum);
+
+  const _IndexedSong._(this.song, this.title, this.artist, this.album);
+
+  final Song song;
+  final String title;
+  final String artist;
+  final String album;
+
+  bool hasSameSearchFields(Song other) =>
+      song.title == other.title &&
+      song.artist == other.artist &&
+      song.album == other.album &&
+      (song.title.trim().isNotEmpty || song.filePath == other.filePath);
+
+  _IndexedSong withSong(Song song) =>
+      _IndexedSong._(song, title, artist, album);
 }

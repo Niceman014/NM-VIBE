@@ -1,4 +1,36 @@
 import '../sources/music_source.dart';
+import 'music_search_ranking.dart';
+
+const int _maximumSearchPage = 1000;
+
+final class MusicSearchPage {
+  const MusicSearchPage({
+    required this.tracks,
+    required this.hasMore,
+    this.failedSourceIds = const <String>[],
+  });
+
+  final List<MusicTrack> tracks;
+  final bool hasMore;
+  final List<String> failedSourceIds;
+}
+
+/// Results from one provider as soon as that provider finishes its search.
+final class MusicSearchSourceUpdate {
+  const MusicSearchSourceUpdate({
+    required this.sourceId,
+    this.tracks = const <MusicTrack>[],
+    this.failed = false,
+  });
+
+  final String sourceId;
+  final List<MusicTrack> tracks;
+  final bool failed;
+}
+
+typedef MusicSearchProgressCallback = void Function(
+  MusicSearchSourceUpdate update,
+);
 
 /// Combines enabled catalogs and routes source-specific operations by the
 /// source-prefixed track ID (`source:id`).
@@ -17,28 +49,74 @@ class MusicRepository {
   bool get hasOfflineDownloadsEnabled =>
       _sources.any((source) => source.canDownload);
 
-  Future<List<MusicTrack>> search(String query, {int page = 1}) async {
-    if (page < 1) throw ArgumentError.value(page, 'page', 'Must be positive.');
+  Future<List<MusicTrack>> search(String query, {int page = 1}) async =>
+      (await searchPage(query, page: page)).tracks;
+
+  Future<MusicSearchPage> searchPage(
+    String query, {
+    int page = 1,
+    MusicSearchProgressCallback? onSourceUpdate,
+  }) async {
+    if (page < 1 || page > _maximumSearchPage) {
+      throw ArgumentError.value(
+        page,
+        'page',
+        'Must be between 1 and $_maximumSearchPage.',
+      );
+    }
+    final normalizedQuery = query
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .toLowerCase();
     final enabled = _sources.where((source) => source.isConfigured).toList();
-    if (enabled.isEmpty) return const <MusicTrack>[];
+    if (enabled.isEmpty) {
+      return const MusicSearchPage(tracks: <MusicTrack>[], hasMore: false);
+    }
 
     final remoteErrors = <Object>[];
-    final sourceResults = await Future.wait(
-      enabled.map((source) async {
+    final failedSourceIds = <String>[];
+    final sourceResults = List<List<MusicTrack>>.filled(
+      enabled.length,
+      const <MusicTrack>[],
+    );
+    await Future.wait(
+      enabled.indexed.map((entry) async {
+        final (index, source) = entry;
         try {
-          return await source.search(query, page: page);
+          final tracks = await source.search(normalizedQuery, page: page);
+          sourceResults[index] = tracks;
+          onSourceUpdate?.call(
+            MusicSearchSourceUpdate(
+              sourceId: source.id,
+              tracks: rankMusicTracks(normalizedQuery, tracks),
+            ),
+          );
         } catch (error) {
-          if (source.id != 'local') remoteErrors.add(error);
-          return const <MusicTrack>[];
+          if (source.id != 'local') {
+            remoteErrors.add(error);
+            failedSourceIds.add(source.id);
+            onSourceUpdate?.call(
+              MusicSearchSourceUpdate(sourceId: source.id, failed: true),
+            );
+          }
         }
       }),
     );
-    final results = sourceResults.expand((tracks) => tracks).toList();
+    final results = rankMusicTracks(
+      normalizedQuery,
+      deduplicateMusicTracks(sourceResults.expand((tracks) => tracks)),
+    );
     final Object? remoteError = remoteErrors.isEmpty
         ? null
         : remoteErrors.first;
     if (results.isEmpty && remoteError != null) throw remoteError;
-    return results;
+    return MusicSearchPage(
+      tracks: results,
+      hasMore:
+          page < _maximumSearchPage &&
+          sourceResults.any((tracks) => tracks.isNotEmpty),
+      failedSourceIds: List<String>.unmodifiable(failedSourceIds),
+    );
   }
 
   Future<String?> getStreamUrl(String sourceTrackId) {
@@ -95,3 +173,46 @@ class MusicRepository {
     }
   }
 }
+
+/// Removes repeated provider IDs and conservative cross-provider matches.
+/// Cross-provider suppression requires title, artist, and duration within two
+/// seconds, avoiding guesses based on title alone.
+List<MusicTrack> deduplicateMusicTracks(Iterable<MusicTrack> tracks) {
+  final unique = <MusicTrack>[];
+  final seenIds = <String>{};
+  final crossProvider = <String, List<MusicTrack>>{};
+
+  for (final track in tracks) {
+    final identity = '${track.sourceId}:${track.id}';
+    if (!seenIds.add(identity)) continue;
+
+    final title = _normalizedMetadata(track.title);
+    final artist = _normalizedMetadata(track.artist);
+    if (track.sourceId != 'local' &&
+        title.isNotEmpty &&
+        artist.isNotEmpty &&
+        track.duration.inSeconds > 0 &&
+        !_hasRecordingQualifier(track)) {
+      final key = '$title|$artist';
+      final priorMatches = crossProvider.putIfAbsent(key, () => <MusicTrack>[]);
+      final duplicate = priorMatches.any(
+        (prior) =>
+            prior.sourceId != track.sourceId &&
+            !_hasRecordingQualifier(prior) &&
+            (prior.duration.inSeconds - track.duration.inSeconds).abs() <= 2,
+      );
+      if (duplicate) continue;
+      priorMatches.add(track);
+    }
+    unique.add(track);
+  }
+  return List<MusicTrack>.unmodifiable(unique);
+}
+
+String _normalizedMetadata(String value) =>
+    value.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+
+bool _hasRecordingQualifier(MusicTrack track) => RegExp(
+  r'\b(live|remaster(?:ed)?|cover|acoustic|demo|remix|radio edit|extended mix)\b',
+  caseSensitive: false,
+).hasMatch('${track.title} ${track.album}');

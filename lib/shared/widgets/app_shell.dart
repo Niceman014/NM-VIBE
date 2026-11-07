@@ -7,8 +7,10 @@ import 'package:nm_vibe/shared/providers/app_providers.dart';
 import 'package:nm_vibe/features/library/views/library_page.dart';
 import 'package:nm_vibe/features/library/controllers/scan_controller.dart';
 import 'package:nm_vibe/features/discover/views/discover_page.dart';
+import 'package:nm_vibe/features/downloads/views/downloads_page.dart';
 import 'package:nm_vibe/features/playlists/views/playlists_page.dart';
 import 'package:nm_vibe/features/settings/views/settings_page.dart';
+
 import 'desktop_now_playing_pane.dart';
 import 'mini_player.dart';
 
@@ -38,6 +40,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   static const List<Widget> _pages = [
     LibraryPage(),
     DiscoverPage(),
+    DownloadsPage(),
     PlaylistsPage(),
     SettingsPage(),
   ];
@@ -52,6 +55,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       icon: Icon(Icons.explore_outlined),
       selectedIcon: Icon(Icons.explore_rounded),
       label: 'Discover',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.download_for_offline_outlined),
+      selectedIcon: Icon(Icons.download_for_offline_rounded),
+      label: 'Downloaded',
     ),
     NavigationDestination(
       icon: Icon(Icons.queue_music_outlined),
@@ -75,6 +83,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       icon: Icon(Icons.explore_outlined),
       selectedIcon: Icon(Icons.explore_rounded),
       label: Text('Discover'),
+    ),
+    NavigationRailDestination(
+      icon: Icon(Icons.download_for_offline_outlined),
+      selectedIcon: Icon(Icons.download_for_offline_rounded),
+      label: Text('Downloaded'),
     ),
     NavigationRailDestination(
       icon: Icon(Icons.queue_music_outlined),

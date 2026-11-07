@@ -9,13 +9,18 @@ import 'package:nm_vibe/shared/providers/app_providers.dart';
 import 'package:nm_vibe/core/scanner/artwork_service.dart';
 import 'package:nm_vibe/shared/providers/music_providers.dart';
 import 'package:nm_vibe/core/storage/settings_service.dart';
+
 import '../../../features/updates/controllers/update_controller.dart';
 import '../../../features/updates/services/update_strategy.dart';
+
 import 'package:nm_vibe/core/utils/formatters.dart';
 import 'package:nm_vibe/core/platform/platform_info.dart';
 import 'package:nm_vibe/shared/widgets/album_art.dart';
+
 import '../../library/controllers/scan_controller.dart';
+
 import 'package:nm_vibe/data/models/song_model.dart';
+
 import '../../player/controllers/player_controller.dart';
 import '../controllers/equalizer_controller.dart';
 
@@ -104,18 +109,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
     try {
+      await ref.read(downloadManagerProvider).cancelAll();
       await ref.read(internetArchiveServiceProvider).deleteDownloads();
       final songs = ref.read(songsProvider).value ?? const <Song>[];
-      await ref
-          .read(libraryRepositoryProvider)
-          .deleteSongs(
-            songs
-                .where(
-                  (song) =>
-                      song.isDownloaded && song.source == 'internet_archive',
-                )
-                .map((song) => song.id),
-          );
+      final repository = ref.read(libraryRepositoryProvider);
+      for (final song in songs.where(
+        (song) => song.isDownloaded && song.source == 'internet_archive',
+      )) {
+        await repository.updateSong(
+          song.copyWith(
+            filePath: song.streamUrl ?? song.filePath,
+            fileSize: 0,
+            isDownloaded: false,
+          ),
+        );
+      }
+      ref.invalidate(offlineIndexProvider);
       await _loadDownloadSize();
       _showSnack('Offline downloads deleted');
     } catch (error) {

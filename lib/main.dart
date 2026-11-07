@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -51,7 +53,10 @@ Future<void> main() async {
           settingsControllerProvider.overrideWith(
             (ref) => SettingsController(preferences),
           ),
-          audioHandlerProvider.overrideWithValue(audioHandler),
+          audioHandlerProvider.overrideWith((ref) {
+            ref.onDispose(() => unawaited(audioHandler.dispose()));
+            return audioHandler;
+          }),
         ],
         child: const NmVibeApp(),
       ),

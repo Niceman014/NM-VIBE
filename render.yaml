@@ -5,8 +5,3 @@ services:
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
-    envVars:
-      - key: JAMENDO_COMMERCIAL_LICENSE_CONFIRMED
-        value: "false" # Keep false until a commercial agreement is signed.
-      - key: JAMENDO_CLIENT_ID
-        sync: false
